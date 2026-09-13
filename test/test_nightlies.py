@@ -138,10 +138,19 @@ class TestCli(unittest.TestCase):
         self.old_cwd = Path.cwd()
         self.env_patch = mock.patch.dict(os.environ, {"HOME": str(self.tmpdir)}, clear=False)
         self.env_patch.start()
+        self.client_env_names = ("NIGHTLIES_URL", "NIGHTLIES_USERNAME", "NIGHTLIES_PASSWORD")
+        self.client_env = {name: os.environ.get(name) for name in self.client_env_names}
+        for name in self.client_env_names:
+            os.environ.pop(name, None)
         os.chdir(self.tmpdir)
 
     def tearDown(self) -> None:
         os.chdir(self.old_cwd)
+        for name, value in self.client_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
         self.env_patch.stop()
         shutil.rmtree(self.tmpdir)
 
@@ -634,6 +643,30 @@ class TestCli(unittest.TestCase):
             },
         )
         self.assertEqual(cli.load_client_config(), cli.ClientConfig("https://nightlies.example", "alice", "secret"))
+
+    def test_load_client_config_uses_environment_variables(self) -> None:
+        cli.save_client_config(cli.ClientConfig("https://saved.example", "saved-user", "saved-pass"))
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "NIGHTLIES_URL": "https://env.example",
+                "NIGHTLIES_USERNAME": "env-user",
+                "NIGHTLIES_PASSWORD": "env-pass",
+            },
+        ):
+            self.assertEqual(
+                cli.load_client_config(),
+                cli.ClientConfig("https://env.example", "env-user", "env-pass"),
+            )
+
+    def test_load_client_config_rejects_incomplete_environment_variables(self) -> None:
+        with mock.patch.dict(os.environ, {"NIGHTLIES_URL": "https://env.example"}):
+            with self.assertRaisesRegex(
+                cli.InvalidClientConfig,
+                "environment configuration requires NIGHTLIES_URL",
+            ):
+                cli.load_client_config()
 
     def test_cmd_setup_refuses_page_without_nightly_controls(self) -> None:
         state = cli.IndexState(False, [])

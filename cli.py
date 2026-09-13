@@ -118,6 +118,17 @@ def save_client_config(client_config: ClientConfig) -> Path:
 
 
 def load_client_config() -> ClientConfig:
+    nightly_url = os.environ.get("NIGHTLIES_URL")
+    username = os.environ.get("NIGHTLIES_USERNAME")
+    password = os.environ.get("NIGHTLIES_PASSWORD")
+    if any(value is not None for value in (nightly_url, username, password)):
+        if not nightly_url or not username or not password:
+            raise InvalidClientConfig(
+                "environment configuration requires NIGHTLIES_URL, "
+                "NIGHTLIES_USERNAME, and NIGHTLIES_PASSWORD"
+            )
+        return ClientConfig(nightly_url, username, password)
+
     path = client_state_path()
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))

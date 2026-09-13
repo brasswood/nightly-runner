@@ -38,6 +38,10 @@ Before you can use `list`, `log`, `status`, or `download`, run
 password, then saves the nightly URL and credentials in an OS-appropriate
 data directory so later commands can reuse them.
 
+For non-interactive use, set `NIGHTLIES_URL`, `NIGHTLIES_USERNAME`, and
+`NIGHTLIES_PASSWORD`. If any of these variables is set, all three are
+required, and they take precedence over the saved client configuration.
+
 ## Server
 
 The rest of this repository is the nightly test runner and web server. To
