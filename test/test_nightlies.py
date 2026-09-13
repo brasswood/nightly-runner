@@ -32,6 +32,10 @@ import cli
 import runner
 
 
+def log_name(name: str, url: str | None = None) -> str:
+    return name
+
+
 class FakeRunner:
     def __init__(self, dryrun: bool = False) -> None:
         self.dryrun = dryrun
@@ -188,7 +192,10 @@ class TestCli(unittest.TestCase):
         }
         opener = FakeOpener(
             {
-                self.absolute_url(client_config, "/logs/taylor-order0.log"): (
+                self.absolute_url(
+                    client_config,
+                    cli.log_url(client_config, "2026-04-19-123456-1-herbie-taylor-order0.log"),
+                ): (
                     "Publishing report directory /tmp/report to "
                     f"/srv/reports/herbie/{report_name}\n"
                 ).encode("utf-8"),
@@ -197,7 +204,7 @@ class TestCli(unittest.TestCase):
                 report_url + "/results.json.gz": gzip.compress(b"{\"ok\":true}\n"),
             }
         )
-        entry = cli.LogEntry(
+        entry = log_name(
             name="2026-04-19-123456-1-herbie-taylor-order0.log",
             url="/logs/taylor-order0.log",
         )
@@ -246,13 +253,13 @@ class TestCli(unittest.TestCase):
         client_config = self.client_config()
         report_url = self.report_url(client_config, "herbie/" + report_name)
         manifest = {"files": [{"path": "results.json", "gzip": False}]}
-        entry = cli.LogEntry(
+        entry = log_name(
             name="2026-04-19-123456-1-herbie-taylor-order0.log",
             url="/logs/taylor-order0.log",
         )
         opener = FakeOpener(
             {
-                self.absolute_url(client_config, entry.url): (
+                self.absolute_url(client_config, cli.log_url(client_config, entry)): (
                     "Publishing report directory /tmp/report to "
                     f"/srv/reports/herbie/{report_name}\n"
                 ).encode("utf-8"),
@@ -276,15 +283,15 @@ class TestCli(unittest.TestCase):
 
     def test_cmd_list_accepts_branch_date_and_time_filters(self) -> None:
         entries = [
-            cli.LogEntry(
+            log_name(
                 name="2026-04-19-123456-1-herbie-main.log",
                 url="/logs/main.log",
             ),
-            cli.LogEntry(
+            log_name(
                 name="2026-04-19-123456-1-herbie-taylor-order0.log",
                 url="/logs/taylor-old.log",
             ),
-            cli.LogEntry(
+            log_name(
                 name="2026-04-20-090832-1-herbie-taylor-order0.log",
                 url="/logs/taylor-new.log",
             ),
@@ -306,15 +313,15 @@ class TestCli(unittest.TestCase):
 
     def test_cmd_list_accepts_partial_date_filters(self) -> None:
         entries = [
-            cli.LogEntry(
+            log_name(
                 name="2026-08-19-123456-1-herbie-taylor-order0.log",
                 url="/logs/august.log",
             ),
-            cli.LogEntry(
+            log_name(
                 name="2026-09-20-123456-1-herbie-taylor-order0.log",
                 url="/logs/september.log",
             ),
-            cli.LogEntry(
+            log_name(
                 name="2027-08-21-123456-1-herbie-taylor-order0.log",
                 url="/logs/next-year.log",
             ),
@@ -323,7 +330,7 @@ class TestCli(unittest.TestCase):
         with mock.patch.object(
             cli,
             "iter_entries",
-            side_effect=lambda _client_config: iter(reversed(entries)),
+            side_effect=lambda *_args: iter(reversed(entries)),
         ):
             for date, expected in (
                 ("2026", "2026-08-19 12:34:56 taylor-order0\n2026-09-20 12:34:56 taylor-order0\n"),
@@ -342,11 +349,11 @@ class TestCli(unittest.TestCase):
 
     def test_cmd_list_branch_lists_all_matching_runs(self) -> None:
         entries = [
-            cli.LogEntry(
+            log_name(
                 name="2026-04-19-123456-1-herbie-taylor-order0.log",
                 url="/logs/taylor-old.log",
             ),
-            cli.LogEntry(
+            log_name(
                 name="2026-04-20-090832-1-herbie-taylor-order0.log",
                 url="/logs/taylor-new.log",
             ),
@@ -367,16 +374,16 @@ class TestCli(unittest.TestCase):
 
     def test_main_log_without_branch_defaults_to_current_branch(self) -> None:
         entries = [
-            cli.LogEntry(
+            log_name(
                 name="2026-04-20-090832-1-herbie-taylor-order0.log",
                 url="/logs/taylor-new.log",
             ),
-            cli.LogEntry(
+            log_name(
                 name="2026-04-19-123456-1-herbie-main.log",
                 url="/logs/main.log",
             ),
         ]
-        opener = FakeOpener({self.absolute_url(self.client_config(), entries[1].url): b"main log\n"})
+        opener = FakeOpener({self.absolute_url(self.client_config(), cli.log_url(self.client_config(), entries[1])): b"main log\n"})
 
         with (
             self.client_open_patch(opener),
@@ -415,13 +422,13 @@ class TestCli(unittest.TestCase):
                 {"path": "nightly_info.json", "gzip": False},
             ],
         }
-        entry = cli.LogEntry(
+        entry = log_name(
             name="2026-04-20-150000-1-herbie-taylor-order0.log",
             url="/logs/taylor-order0.log",
         )
         opener = FakeOpener(
             {
-                self.absolute_url(client_config, entry.url): (
+                self.absolute_url(client_config, cli.log_url(client_config, entry)): (
                     "Publishing report directory /tmp/report to "
                     f"/srv/reports/herbie/{report_name}\n"
                 ).encode("utf-8"),
@@ -466,13 +473,13 @@ class TestCli(unittest.TestCase):
             "status": "success",
             "files": [],
         }
-        entry = cli.LogEntry(
+        entry = log_name(
             name="2026-04-21-150000-1-herbie-feature.log",
             url="/logs/feature.log",
         )
         opener = FakeOpener(
             {
-                self.absolute_url(client_config, entry.url): (
+                self.absolute_url(client_config, cli.log_url(client_config, entry)): (
                     "Publishing report directory /tmp/report to "
                     f"/srv/reports/herbie/{report_name}\n"
                 ).encode("utf-8"),
@@ -494,11 +501,11 @@ class TestCli(unittest.TestCase):
         self.assertIn("herbie / feature\n", stdout.getvalue())
 
     def test_cmd_status_allows_missing_report(self) -> None:
-        entry = cli.LogEntry(
+        entry = log_name(
             name="2026-04-20-150000-1-herbie-taylor-order0.log",
             url="/logs/taylor-order0.log",
         )
-        opener = FakeOpener({self.absolute_url(self.client_config(), entry.url): b"still running\n"})
+        opener = FakeOpener({self.absolute_url(self.client_config(), cli.log_url(self.client_config(), entry)): b"still running\n"})
 
         with (
             self.client_open_patch(opener),
@@ -516,11 +523,11 @@ class TestCli(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "No report. Run `uvx nightlies log` to view log details\n")
 
     def test_cmd_status_explains_old_missing_report(self) -> None:
-        entry = cli.LogEntry(
+        entry = log_name(
             name="2025-08-30-030107-1-herbie-main.log",
             url="/logs/main.log",
         )
-        opener = FakeOpener({self.absolute_url(self.client_config(), entry.url): b"old log\n"})
+        opener = FakeOpener({self.absolute_url(self.client_config(), cli.log_url(self.client_config(), entry)): b"old log\n"})
 
         with (
             self.client_open_patch(opener),
@@ -544,13 +551,13 @@ class TestCli(unittest.TestCase):
         report_name = "1713625200:taylor-order0:deadbeef"
         client_config = self.client_config()
         report_url = self.report_url(client_config, "herbie/" + report_name)
-        entry = cli.LogEntry(
+        entry = log_name(
             name="2026-04-20-150000-1-herbie-taylor-order0.log",
             url="/logs/taylor-order0.log",
         )
         opener = FakeOpener(
             {
-                self.absolute_url(client_config, entry.url): (
+                self.absolute_url(client_config, cli.log_url(client_config, entry)): (
                     "Publishing report directory /tmp/report to "
                     f"/srv/reports/herbie/{report_name}\n"
                 ).encode("utf-8"),
@@ -575,13 +582,13 @@ class TestCli(unittest.TestCase):
         report_name = "1713570003:feature:decafbad"
         client_config = self.client_config()
         report_url = self.report_url(client_config, "herbie/" + report_name)
-        entry = cli.LogEntry(
+        entry = log_name(
             name="2026-04-21-150000-1-herbie-feature.log",
             url="/logs/feature.log",
         )
         opener = FakeOpener(
             {
-                self.absolute_url(client_config, entry.url): (
+                self.absolute_url(client_config, cli.log_url(client_config, entry)): (
                     "Publishing report directory /tmp/report to "
                     f"/srv/reports/herbie/{report_name}\n"
                 ).encode("utf-8"),
@@ -608,8 +615,10 @@ class TestCli(unittest.TestCase):
         with (
             mock.patch("builtins.input", return_value="alice"),
             mock.patch.object(cli.getpass, "getpass", return_value="secret"),
-            mock.patch.object(cli.ClientConfig, "fetch", return_value=""),
-            mock.patch.object(cli.IndexParser, "parse", return_value=state),
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
+                "sync_disabled": state.sync_disabled,
+                "start_targets": [target.__dict__ for target in state.start_targets],
+            }),
             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
         ):
             rc = cli.cmd_setup("https://nightlies.example")
@@ -632,8 +641,10 @@ class TestCli(unittest.TestCase):
         with (
             mock.patch("builtins.input", return_value="alice"),
             mock.patch.object(cli.getpass, "getpass", return_value="secret"),
-            mock.patch.object(cli.ClientConfig, "fetch", return_value=""),
-            mock.patch.object(cli.IndexParser, "parse", return_value=state),
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
+                "sync_disabled": state.sync_disabled,
+                "start_targets": [],
+            }),
             mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
         ):
             rc = cli.main(["setup", "https://nightlies.example"])
@@ -651,11 +662,11 @@ class TestCli(unittest.TestCase):
 
     def test_main_list_without_branch_does_not_default_to_current_branch(self) -> None:
         entries = [
-            cli.LogEntry(
+            log_name(
                 name="2026-04-19-123456-1-herbie-main.log",
                 url="/logs/main.log",
             ),
-            cli.LogEntry(
+            log_name(
                 name="2026-04-20-090832-1-herbie-feature.log",
                 url="/logs/feature.log",
             ),
@@ -678,21 +689,39 @@ class TestCli(unittest.TestCase):
             "2026-04-20 09:08:32 feature\n",
         )
 
-    def test_nginx_index_parser_uses_relative_log_urls(self) -> None:
-        entries = cli.NginxIndexParser.parse(
-            '<a href="2026-04-20-090832-1-herbie-main.log">main</a>',
-            "/logs/",
+    def test_parse_log_entries_reads_api_response(self) -> None:
+        entries = cli.parse_log_entries({
+            "logs": [{
+                "name": "2026-04-20-090832-1-herbie-main.log",
+                "url": "/logs/2026-04-20-090832-1-herbie-main.log",
+            }],
+        })
+
+        self.assertEqual(entries, ["2026-04-20-090832-1-herbie-main.log"])
+
+    def test_log_url_is_derived_when_api_returns_names_only(self) -> None:
+        self.assertEqual(
+            cli.log_url(self.client_config(), "run space.log"),
+            "https://nightly.cs.washington.edu/logs/run%20space.log",
         )
 
-        self.assertEqual(
-            entries,
-            [
-                cli.LogEntry(
-                    "2026-04-20-090832-1-herbie-main.log",
-                    "/logs/2026-04-20-090832-1-herbie-main.log",
-                )
-            ],
+    def test_iter_entries_fetches_log_api(self) -> None:
+        client_config = self.client_config()
+        payload = json.dumps({"logs": [{"name": "run.log", "url": "/logs/run.log"}]}).encode()
+        logs_url = self.absolute_url(
+            client_config,
+            cli.API_LOGS_PATH + "?repo=herbie&branch=main&date=2026-04-20&time=09%3A08%3A32&limit=10",
         )
+        opener = FakeOpener({logs_url: payload})
+
+        with self.client_open_patch(opener):
+            self.assertEqual(list(cli.iter_entries(
+                client_config,
+                "herbie",
+                cli.RunSelector("main", "2026-04-20", "09:08:32"),
+            )), ["run.log"])
+
+        self.assertEqual(opener.requests, [logs_url])
 
     def test_infer_repo_returns_short_github_repo_name(self) -> None:
         result = subprocess.CompletedProcess(
@@ -704,25 +733,14 @@ class TestCli(unittest.TestCase):
         with mock.patch.object(cli.subprocess, "run", return_value=result):
             self.assertEqual(cli.infer_repo("."), "herbie")
 
-    def test_parse_index_state_reads_sync_and_start_controls(self) -> None:
-        state = cli.IndexParser.parse(
-            """
-            <form action="/dryrun" method="post">
-              <button disabled>Sync with Github</button>
-            </form>
-            <form action="runnow" method="post">
-              <input type="hidden" name="repo" value="herbie" />
-              <input type="hidden" name="branch" value="main" />
-              <button>Run</button>
-            </form>
-            <form action="https://nightly.cs.washington.edu/runnow" method="post">
-              <input type="hidden" name="repo" value="ruler" />
-              <input type="hidden" name="branch" value="feature/test" />
-              <button disabled>Run</button>
-            </form>
-            """,
-            cli.INDEX_PATH,
-        )
+    def test_parse_control_state_reads_api_response(self) -> None:
+        state = cli.parse_control_state({
+            "sync_disabled": True,
+            "start_targets": [
+                {"repo": "herbie", "branch": "main", "disabled": False},
+                {"repo": "ruler", "branch": "feature/test", "disabled": True},
+            ],
+        })
 
         self.assertTrue(state.sync_disabled)
         self.assertEqual(
@@ -738,8 +756,10 @@ class TestCli(unittest.TestCase):
 
         with (
             mock.patch.object(cli, "load_client_config", return_value=self.client_config()),
-            mock.patch.object(cli.ClientConfig, "fetch", return_value=""),
-            mock.patch.object(cli.IndexParser, "parse", return_value=state),
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
+                "sync_disabled": True,
+                "start_targets": [],
+            }),
             mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
         ):
             rc = cli.main(["sync"])
@@ -758,8 +778,10 @@ class TestCli(unittest.TestCase):
 
         with (
             self.client_open_patch(CapturingOpener()),
-            mock.patch.object(cli.ClientConfig, "fetch", return_value=""),
-            mock.patch.object(cli.IndexParser, "parse", return_value=cli.IndexState(False, [])),
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
+                "sync_disabled": False,
+                "start_targets": [],
+            }),
         ):
             rc = cli.cmd_sync(self.client_config())
 
@@ -783,8 +805,10 @@ class TestCli(unittest.TestCase):
 
         with (
             self.client_open_patch(CapturingOpener()),
-            mock.patch.object(cli.ClientConfig, "fetch", return_value=""),
-            mock.patch.object(cli.IndexParser, "parse", return_value=state),
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
+                "sync_disabled": False,
+                "start_targets": [target.__dict__ for target in state.start_targets],
+            }),
         ):
             rc = cli.cmd_start(self.client_config(), "herbie", "feature/test")
 
@@ -801,8 +825,10 @@ class TestCli(unittest.TestCase):
         with (
             mock.patch.object(cli, "load_client_config", return_value=self.client_config()),
             mock.patch.object(cli, "infer_repo", return_value="herbie"),
-            mock.patch.object(cli.ClientConfig, "fetch", return_value=""),
-            mock.patch.object(cli.IndexParser, "parse", return_value=state),
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
+                "sync_disabled": False,
+                "start_targets": [target.__dict__ for target in state.start_targets],
+            }),
             mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
         ):
             rc = cli.main(["start", "feature/test"])
@@ -819,8 +845,10 @@ class TestCli(unittest.TestCase):
         with (
             mock.patch.object(cli, "load_client_config", return_value=self.client_config()),
             mock.patch.object(cli, "infer_repo", return_value="herbie"),
-            mock.patch.object(cli.ClientConfig, "fetch", return_value=""),
-            mock.patch.object(cli.IndexParser, "parse", return_value=state),
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
+                "sync_disabled": False,
+                "start_targets": [target.__dict__ for target in state.start_targets],
+            }),
             mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
         ):
             rc = cli.main(["start", "feature/test"])
@@ -848,8 +876,10 @@ class TestCli(unittest.TestCase):
             mock.patch.object(cli, "load_client_config", return_value=self.client_config()),
             mock.patch.object(cli, "infer_repo", return_value="herbie"),
             mock.patch.object(cli, "current_branch", return_value="feature/test"),
-            mock.patch.object(cli.ClientConfig, "fetch", return_value=""),
-            mock.patch.object(cli.IndexParser, "parse", return_value=state),
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
+                "sync_disabled": False,
+                "start_targets": [target.__dict__ for target in state.start_targets],
+            }),
         ):
             rc = cli.main(["start"])
 
@@ -877,8 +907,10 @@ class TestCli(unittest.TestCase):
             self.client_open_patch(ErrorOpener()),
             mock.patch.object(cli, "load_client_config", return_value=client_config),
             mock.patch.object(cli, "infer_repo", return_value="herbie"),
-            mock.patch.object(cli.ClientConfig, "fetch", return_value=""),
-            mock.patch.object(cli.IndexParser, "parse", return_value=state),
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
+                "sync_disabled": False,
+                "start_targets": [target.__dict__ for target in state.start_targets],
+            }),
             mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
         ):
             rc = cli.main(["start", "main"])
@@ -1504,6 +1536,60 @@ class TestServerRunNow(unittest.TestCase):
         self.assertEqual(ctx.exception.body, "Job nightly:testrepo:feature_2ftest already queued")
         repo_state.read.assert_called_once_with()
         run_nightlies.assert_not_called()
+
+    def test_control_state_matches_web_ui_controls(self) -> None:
+        server = self.import_server()
+        state = {
+            "runner": SimpleNamespace(repos=[SimpleNamespace(
+                name="testrepo",
+                branches={
+                    "main": SimpleNamespace(name="main", badges=[]),
+                    "feature": SimpleNamespace(name="feature", badges=["queued"]),
+                },
+            )]),
+            "current": None,
+        }
+
+        self.assertEqual(server.control_state(state), {
+            "sync_disabled": False,
+            "start_targets": [
+                {"repo": "testrepo", "branch": "main", "disabled": False},
+                {"repo": "testrepo", "branch": "feature", "disabled": True},
+            ],
+        })
+
+    def test_log_entries_lists_newest_logs_with_escaped_urls(self) -> None:
+        server = self.import_server()
+        log_dir = Path(tempfile.mkdtemp(prefix="server-logs-"))
+        self.addCleanup(shutil.rmtree, log_dir)
+        old_log = log_dir / "2026-01-01-000000-1-herbie-old.log"
+        new_log = log_dir / "2026-01-02-000000-1-herbie-new log.log"
+        old_log.touch()
+        new_log.touch()
+        os.utime(old_log, (1, 1))
+        os.utime(new_log, (2, 2))
+
+        self.assertEqual(server.log_entries(SimpleNamespace(log_dir=log_dir, base_url=None), "herbie"), [
+            {"name": "2026-01-02-000000-1-herbie-new log.log"},
+            {"name": "2026-01-01-000000-1-herbie-old.log"},
+        ])
+
+    def test_log_entries_filters_before_selecting_ten(self) -> None:
+        server = self.import_server()
+        log_dir = Path(tempfile.mkdtemp(prefix="server-logs-"))
+        self.addCleanup(shutil.rmtree, log_dir)
+        for i in range(20):
+            (log_dir / f"2026-01-01-0000{i:02d}-1-herbie-main.log").touch()
+        (log_dir / "2026-01-02-000000-1-ruler-main.log").touch()
+
+        entries = server.log_entries(
+            SimpleNamespace(log_dir=log_dir, base_url=None),
+            repo="herbie",
+            branch="main",
+            date="2026-01-01",
+        )
+        self.assertEqual(len(entries), 10)
+        self.assertTrue(all("herbie-main" in entry["name"] for entry in entries))
 
 
 class TestBranchRunner(unittest.TestCase):

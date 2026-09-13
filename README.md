@@ -40,7 +40,12 @@ data directory so later commands can reuse them.
 
 ## Server
 
-The rest of this repository is the nightly test runner and web server.
+The rest of this repository is the nightly test runner and web server. To
+install the web server, run:
+
+```bash
+uv tool install 'nightlies[server]'
+```
 
 ## Usage
 

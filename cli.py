@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 
-import codecs
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from html.parser import HTMLParser
 from pathlib import Path
 import argparse
 import datetime
@@ -27,8 +25,9 @@ import webbrowser
 ## Setup & config file
 
 STATE_FILENAME = "state.json"
-INDEX_PATH = "/"
-LOGS_PATH = "/logs/?C=M&O=D"
+API_PATH = "/api"
+API_LOGS_PATH = "/api/logs"
+LOG_PAGE_SIZE = 10
 REPORTS_PATH = "/reports/"
 SYNC_PATH = "/dryrun"
 START_PATH = "/runnow"
@@ -61,6 +60,15 @@ class ClientConfig:
     def fetch(self, url: str) -> str:
         with self.open(urllib.parse.urljoin(self.index_url, url)) as response:
             return response.read().decode("utf-8", errors="replace")
+
+    def fetch_json(self, url: str) -> dict[str, object]:
+        try:
+            payload = json.loads(self.fetch(url))
+        except json.JSONDecodeError as exc:
+            raise CliError(f"invalid JSON response from {url}: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise CliError(f"invalid JSON response from {url}: expected an object")
+        return payload
 
     def post(self, url: str, fields: dict[str, str]) -> None:
         request = urllib.request.Request(
@@ -130,58 +138,7 @@ def load_client_config() -> ClientConfig:
     return ClientConfig(nightly_url, username, password)
 
 
-## Parsers; eventually the server should offer an API for all this
-
-@dataclass(frozen=True)
-class LogEntry:
-    name: str
-    url: str
-
-
-class NginxIndexParser(HTMLParser):
-    def __init__(self, base_path: str):
-        super().__init__()
-        self.base_path = base_path
-        self.entries: list[LogEntry] = []
-        self._href: str | None = None
-        self._text: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag != "a":
-            return
-        self._href = dict(attrs).get("href")
-        self._text = []
-
-    def handle_data(self, data: str) -> None:
-        if self._href is not None:
-            self._text.append(data)
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag != "a" or self._href is None:
-            return
-        href = self._href
-        text = "".join(self._text).strip()
-        self._href = None
-        self._text = []
-        if not href.endswith(".log") or text == "Parent directory/":
-            return
-        self.entries.append(LogEntry(Path(href).name, urllib.parse.urljoin(self.base_path, href)))
-
-    def drain_entries(self) -> list[LogEntry]:
-        entries = self.entries
-        self.entries = []
-        return entries
-
-    @classmethod
-    def parse(cls, payload: str, base_path: str) -> list[LogEntry]:
-        parser = cls(base_path)
-        parser.feed(payload)
-        parser.close()
-        deduped: dict[str, LogEntry] = {}
-        for entry in parser.entries:
-            deduped[entry.name] = entry
-        return list(deduped.values())
-
+## Server API
 
 @dataclass(frozen=True)
 class StartTarget:
@@ -196,64 +153,42 @@ class IndexState:
     start_targets: list[StartTarget]
     
 
-class IndexParser(HTMLParser):
-    def __init__(self, base_path: str):
-        super().__init__()
-        self.base_path = base_path
-        self.sync_disabled = False
-        self.start_targets: list[StartTarget] = []
-        self._form_path: str | None = None
-        self._form_inputs: dict[str, str] = {}
-        self._button_disabled = False
+def parse_control_state(payload: dict[str, object]) -> IndexState:
+    sync_disabled = payload.get("sync_disabled")
+    targets = payload.get("start_targets")
+    if not isinstance(sync_disabled, bool) or not isinstance(targets, list):
+        raise CliError("invalid control response")
+    start_targets: list[StartTarget] = []
+    for target in targets:
+        if not isinstance(target, dict):
+            raise CliError("invalid control response")
+        repo = target.get("repo")
+        branch = target.get("branch")
+        disabled = target.get("disabled")
+        if not isinstance(repo, str) or not isinstance(branch, str) or not isinstance(disabled, bool):
+            raise CliError("invalid control response")
+        start_targets.append(StartTarget(repo, branch, disabled))
+    return IndexState(sync_disabled, start_targets)
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attr_map = dict(attrs)
-        if tag == "form":
-            action = attr_map.get("action")
-            if action is None:
-                self._form_path = None
-            else:
-                path = urllib.parse.urlsplit(urllib.parse.urljoin(self.base_path, action)).path
-                self._form_path = "/" + path.strip("/")
-            self._form_inputs = {}
-            self._button_disabled = False
-            return
-        if self._form_path is None:
-            return
-        if tag == "input":
-            name = attr_map.get("name")
-            value = attr_map.get("value")
-            if name is not None and value is not None:
-                self._form_inputs[name] = value
-            return
-        if tag == "button":
-            self._button_disabled = "disabled" in attr_map
 
-    def handle_endtag(self, tag: str) -> None:
-        if tag != "form" or self._form_path is None:
-            return
-        if self._form_path == SYNC_PATH:
-            self.sync_disabled = self._button_disabled
-        elif self._form_path == START_PATH:
-            repo = self._form_inputs.get("repo")
-            branch = self._form_inputs.get("branch")
-            if repo is not None and branch is not None:
-                self.start_targets.append(StartTarget(repo, branch, self._button_disabled))
-        self._form_path = None
-        self._form_inputs = {}
-        self._button_disabled = False
-
-    @classmethod
-    def parse(cls, payload: str, base_path: str) -> IndexState:
-        parser = cls(base_path)
-        parser.feed(payload)
-        parser.close()
-        return IndexState(parser.sync_disabled, parser.start_targets)
+def parse_log_entries(payload: dict[str, object]) -> list[str]:
+    logs = payload.get("logs")
+    if not isinstance(logs, list):
+        raise CliError("invalid log response")
+    entries: list[str] = []
+    for log in logs:
+        if not isinstance(log, dict):
+            raise CliError("invalid log response")
+        name = log.get("name")
+        if not isinstance(name, str):
+            raise CliError("invalid log response")
+        entries.append(name)
+    return entries
 
 
 @dataclass(frozen=True)
 class RunLog:
-    entry: LogEntry
+    name: str
     date: str
     time: str
     branch: str
@@ -317,22 +252,25 @@ class Manifest:
 
 ## Log index
 
-def iter_entries(client_config: ClientConfig) -> Iterator[LogEntry]:
-    logs_url = urllib.parse.urljoin(client_config.index_url, LOGS_PATH)
-    parser = NginxIndexParser(urllib.parse.urlsplit(LOGS_PATH).path)
-    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-    with client_config.open(logs_url) as response:
-        while True:
-            chunk = response.read(65536)
-            if not chunk:
-                break
-            parser.feed(decoder.decode(chunk))
-            yield from parser.drain_entries()
-    tail = decoder.decode(b"", final=True)
-    if tail:
-        parser.feed(tail)
-    parser.close()
-    yield from parser.drain_entries()
+def iter_entries(
+    client_config: ClientConfig,
+    repo: str | None = None,
+    selector: RunSelector | None = None,
+) -> Iterator[str]:
+    params: dict[str, str] = {}
+    if repo is not None:
+        params["repo"] = repo
+    if selector is not None:
+        if selector.branch is not None:
+            params["branch"] = selector.branch
+        if selector.date is not None:
+            params["date"] = selector.date
+        if selector.time is not None:
+            params["time"] = selector.time
+    params["limit"] = str(LOG_PAGE_SIZE)
+    query = urllib.parse.urlencode(params)
+    url = API_LOGS_PATH + ("?" + query if query else "")
+    yield from parse_log_entries(client_config.fetch_json(url))
 
 
 ## Repo discovery
@@ -382,8 +320,8 @@ def current_branch(cwd: str) -> str:
 
 ## Run logs
 
-def parse_run_log(repo: str, entry: LogEntry) -> RunLog | None:
-    parts = Path(entry.name).stem.split("-")
+def parse_run_log(repo: str, name: str) -> RunLog | None:
+    parts = Path(name).stem.split("-")
     if len(parts) < 5:
         return None
     if len(parts[0]) != 4 or len(parts[1]) != 2 or len(parts[2]) != 2:
@@ -402,21 +340,20 @@ def parse_run_log(repo: str, entry: LogEntry) -> RunLog | None:
     if not branch_parts:
         return None
     return RunLog(
-        entry=entry,
+        name=name,
         date="-".join(parts[:3]),
         time=":".join([raw_time[:2], raw_time[2:4], raw_time[4:6]]),
         branch="-".join(branch_parts),
     )
 
 
-
 def matching_run_logs(
-    entries: Iterable[LogEntry],
+    entries: Iterable[str],
     repo: str,
     selector: RunSelector,
 ) -> Iterator[RunLog]:
-    for entry in entries:
-        run = parse_run_log(repo, entry)
+    for name in entries:
+        run = parse_run_log(repo, name)
         if run is None:
             continue
         if selector.branch is not None and run.branch != selector.branch:
@@ -426,6 +363,13 @@ def matching_run_logs(
         if selector.time is not None and run.time != selector.time:
             continue
         yield run
+
+
+def log_url(client_config: ClientConfig, name: str) -> str:
+    return urllib.parse.urljoin(
+        client_config.index_url,
+        "logs/" + urllib.parse.quote(name),
+    )
 
 
 ## Server controls
@@ -501,9 +445,9 @@ def find_report_url_in_log(repo: str, log_text: str) -> str | None:
 def fetch_published_report(
     client_config: ClientConfig,
     repo: str,
-    entry: LogEntry,
+    name: str,
 ) -> str:
-    log_text = client_config.fetch(entry.url)
+    log_text = client_config.fetch(log_url(client_config, name))
     report_url = find_report_url_in_log(repo, log_text)
     if report_url is None:
         raise CliError("No published report found in log.")
@@ -686,7 +630,7 @@ def cmd_setup(url: str) -> int:
     if not password:
         raise CliError("password must not be empty")
     client_config = ClientConfig(url.strip(), username, password)
-    index_state = IndexParser.parse(client_config.fetch(INDEX_PATH), INDEX_PATH)
+    index_state = parse_control_state(client_config.fetch_json(API_PATH))
     if not index_state.start_targets:
         raise CliError(f"could not find nightly controls at {client_config.index_url}")
     path = save_client_config(client_config)
@@ -695,7 +639,7 @@ def cmd_setup(url: str) -> int:
 
 
 def cmd_sync(client_config: ClientConfig) -> int:
-    index_state = IndexParser.parse(client_config.fetch(INDEX_PATH), INDEX_PATH)
+    index_state = parse_control_state(client_config.fetch_json(API_PATH))
     if index_state.sync_disabled:
         raise CliError("Nightly sync already running")
     client_config.post(SYNC_PATH, {})
@@ -703,7 +647,7 @@ def cmd_sync(client_config: ClientConfig) -> int:
 
 
 def cmd_start(client_config: ClientConfig, repo: str, branch: str) -> int:
-    index_state = IndexParser.parse(client_config.fetch(INDEX_PATH), INDEX_PATH)
+    index_state = parse_control_state(client_config.fetch_json(API_PATH))
     target = resolve_start_target(index_state, repo, branch)
     if index_state.sync_disabled:
         raise CliError("Nightly sync already running")
@@ -714,11 +658,11 @@ def cmd_start(client_config: ClientConfig, repo: str, branch: str) -> int:
 
 
 def cmd_download(client_config: ClientConfig, repo: str, selector: RunSelector) -> int:
-    run_log = next(matching_run_logs(iter_entries(client_config), repo, selector), None)
+    run_log = next(matching_run_logs(iter_entries(client_config, repo, selector), repo, selector), None)
     if run_log is None:
         raise CliError("No matching log found.")
 
-    report_url = fetch_published_report(client_config, repo, run_log.entry)
+    report_url = fetch_published_report(client_config, repo, run_log.name)
     manifest = fetch_manifest(client_config, report_url)
     output_dir = Path(urllib.parse.urlsplit(report_url).path.rstrip("/")).name
     file_count = download_report_files(report_url, manifest.files, Path(output_dir), client_config)
@@ -732,8 +676,8 @@ def cmd_list(
     selector: RunSelector,
 ) -> int:
     entries = list(itertools.islice(
-        matching_run_logs(iter_entries(client_config), repo, selector),
-        20,
+        matching_run_logs(iter_entries(client_config, repo, selector), repo, selector),
+        LOG_PAGE_SIZE,
     ))
     entries.reverse()
     if not entries:
@@ -744,21 +688,21 @@ def cmd_list(
 
 
 def cmd_log(client_config: ClientConfig, repo: str, selector: RunSelector, follow: bool) -> int:
-    run_log = next(matching_run_logs(iter_entries(client_config), repo, selector), None)
+    run_log = next(matching_run_logs(iter_entries(client_config, repo, selector), repo, selector), None)
     if run_log is None:
         raise CliError("No matching log found.")
     if follow:
-        tail_log(client_config, run_log.entry.url)
+        tail_log(client_config, log_url(client_config, run_log.name))
     else:
-        sys.stdout.write(client_config.fetch(run_log.entry.url))
+        sys.stdout.write(client_config.fetch(log_url(client_config, run_log.name)))
     return 0
 
 
 def cmd_status(client_config: ClientConfig, repo: str, selector: RunSelector) -> int:
-    run_log = next(matching_run_logs(iter_entries(client_config), repo, selector), None)
+    run_log = next(matching_run_logs(iter_entries(client_config, repo, selector), repo, selector), None)
     if run_log is None:
         raise CliError("No matching log found.")
-    log_text = client_config.fetch(run_log.entry.url)
+    log_text = client_config.fetch(log_url(client_config, run_log.name))
     report_url = find_report_url_in_log(repo, log_text)
     if report_url is None:
         if datetime.date.fromisoformat(run_log.date) < REPORT_PATH_CUTOFF:
@@ -772,10 +716,10 @@ def cmd_status(client_config: ClientConfig, repo: str, selector: RunSelector) ->
 
 
 def cmd_open(client_config: ClientConfig, repo: str, selector: RunSelector) -> int:
-    run_log = next(matching_run_logs(iter_entries(client_config), repo, selector), None)
+    run_log = next(matching_run_logs(iter_entries(client_config, repo, selector), repo, selector), None)
     if run_log is None:
         raise CliError("No matching log found.")
-    url = urllib.parse.urljoin(client_config.index_url, fetch_published_report(client_config, repo, run_log.entry))
+    url = urllib.parse.urljoin(client_config.index_url, fetch_published_report(client_config, repo, run_log.name))
     if not webbrowser.open_new(url):
         raise CliError(f"could not open browser for {url}")
     return 0

@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 
-from typing import Optional
+from typing import Optional, cast
 from dataclasses import dataclass
 import bottle
 from pathlib import Path
 import nightlies
+import cli
 import tempfile
 import subprocess
 import sys
 import os
-import json
+import heapq
 import signal
 import time
 import shutil
@@ -138,10 +139,78 @@ def load():
         "upgrade": upgrade,
     }
 
+
+def control_state(state: dict[str, object]) -> dict[str, object]:
+    runner = cast(nightlies.NightlyRunner, state["runner"])
+    current = state["current"]
+    return {
+        "sync_disabled": current is not None,
+        "start_targets": [
+            {
+                "repo": repo.name,
+                "branch": branch.name,
+                "disabled": current is not None or "queued" in branch.badges,
+            }
+            for repo in runner.repos
+            for branch in repo.branches.values()
+        ],
+    }
+
+
+def log_entries(
+    runner: nightlies.NightlyRunner,
+    repo: str,
+    branch: str | None = None,
+    date: str | None = None,
+    log_time: str | None = None,
+    limit: int = cli.LOG_PAGE_SIZE,
+) -> list[dict[str, str]]:
+    selector = cli.RunSelector(branch, date, log_time)
+    logs = heapq.nlargest(
+        limit,
+        cli.matching_run_logs(
+            (log.name for log in os.scandir(runner.log_dir) if log.name.endswith(".log")),
+            repo,
+            selector,
+        ),
+        key=lambda run: run.name,
+    )
+    return [{"name": run.name} for run in logs]
+
+
 @bottle.route("/")
 @bottle.view("index.view")
 def index():
     return load()
+
+
+@bottle.route("/api")
+def api():
+    return control_state(load())
+
+
+@bottle.route("/api/logs")
+def api_logs():
+    runner = nightlies.NightlyRunner(CONF_FILE)
+    runner.load()
+    query = bottle.request.query
+    repo = query.get("repo")
+    if repo is None:
+        raise bottle.HTTPError(400, "repo is required")
+    try:
+        limit = min(int(query.get("limit", str(cli.LOG_PAGE_SIZE))), 100)
+    except ValueError as exc:
+        raise bottle.HTTPError(400, "limit must be an integer") from exc
+    if limit < 1:
+        raise bottle.HTTPError(400, "limit must be positive")
+    return {"logs": log_entries(
+        runner,
+        repo,
+        query.get("branch"),
+        query.get("date"),
+        query.get("time"),
+        limit,
+    )}
 
 @bottle.route("/docs")
 @bottle.view("docs.view")

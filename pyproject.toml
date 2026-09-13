@@ -30,6 +30,11 @@ Issues = "https://github.com/pavpanchekha/nightlies/issues"
 [project.scripts]
 nightlies = "cli:main"
 
+[project.optional-dependencies]
+server = [
+    "bottle>=0.13.4",
+]
+
 [tool.setuptools]
 py-modules = ["cli"]
 
