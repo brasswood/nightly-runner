@@ -29,6 +29,7 @@ if str(ROOT) not in sys.path:
 from nightlies import NightlyRunner
 import apt
 import cli
+import config
 import runner
 
 
@@ -1312,6 +1313,57 @@ class TestNightlyRunnerHarness(unittest.TestCase):
         self.assertIn('"commit"', contents)
         self.assertIn('"time"', contents)
 
+    def test_northflank_runner_clones_and_runs_requested_commit(self) -> None:
+        self.makefile(
+            "add successful nightly target",
+            [
+                "test -f sub1/sub.txt",
+                "test \"$$(git rev-parse --abbrev-ref HEAD)\" = feature/test",
+                "echo northflank-ok",
+            ],
+        )
+        self.git(
+            [
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                str(self.subrepo_dir),
+                "sub1",
+            ],
+            repo=self.work_dir,
+        )
+        self.git(["commit", "-m", "add submodule"], repo=self.work_dir)
+        requested_commit = subprocess.run(
+            ["git", "-C", str(self.work_dir), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        self.git(["push", "origin", "main"], repo=self.work_dir)
+
+        self.makefile("replace with failing nightly target", ["false"])
+        self.git(["push", "origin", "main"], repo=self.work_dir)
+
+        env = os.environ.copy()
+        env["NIGHTLIES_REPO"] = self.remote_dir.as_uri()
+        env["NIGHTLIES_BRANCH"] = "feature/test"
+        env["NIGHTLIES_COMMIT"] = requested_commit
+        result = subprocess.run(
+            ["python3", "runner.py", "--mode", "northflank"],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stdout + "\n" + result.stderr)
+        self.assertIn("northflank-ok", result.stdout)
+        self.assertIn("git init --quiet --initial-branch=feature/test", result.stdout)
+        self.assertIn(f"fetch --quiet --depth=1 origin {requested_commit}", result.stdout)
+        self.assertIn(f"reset --hard {requested_commit}", result.stdout)
+        self.assertIn("submodule update --init --recursive --force --depth=1", result.stdout)
+
     def test_dryrun_rejects_when_sync_is_running(self) -> None:
         self.write_config(repo_updates={})
         self.pid_file.write_text(
@@ -1626,13 +1678,87 @@ class TestServerRunNow(unittest.TestCase):
 
 
 class TestBranchRunner(unittest.TestCase):
+    def test_repo_to_url(self) -> None:
+        self.assertEqual(
+            config.repo_to_url("owner/repo"),
+            "git@github.com:owner/repo.git",
+        )
+        self.assertEqual(
+            config.repo_to_url("owner/repo", protocol="https"),
+            "https://github.com/owner/repo.git",
+        )
+        self.assertEqual(
+            config.repo_to_url("https://example.com/repo.git", protocol="https"),
+            "https://example.com/repo.git",
+        )
+
+    def test_northflank_apt_dependencies(self) -> None:
+        update = apt.AptPackageUpdate("racket", "8.10", "8.11")
+        with (
+            mock.patch.object(runner.apt, "add_repositories", return_value=[]) as add_repositories,
+            mock.patch.object(runner.apt, "check_updates", return_value=[update]) as check_updates,
+            mock.patch.object(runner.apt, "install") as install,
+        ):
+            runner.install_apt_dependencies(["ppa:plt/racket"], ["racket"])
+
+        apt_runner = add_repositories.call_args.args[0]
+        add_repositories.assert_called_once_with(apt_runner, ["ppa:plt/racket"])
+        check_updates.assert_called_once_with(apt_runner, ["racket"])
+        install.assert_called_once_with(apt_runner, ["racket"])
+
+    def test_northflank_apt_runner_does_not_use_sudo_as_root(self) -> None:
+        apt_runner = runner.NorthflankAptRunner()
+        with (
+            mock.patch.object(runner.os, "geteuid", return_value=0),
+            mock.patch.object(runner, "run") as run,
+        ):
+            apt_runner.exec(2, ["sudo", "apt", "install", "--yes", "racket"])
+
+        run.assert_called_once_with(
+            [
+                "apt",
+                "-o",
+                "Dir::State::extended_states=/dev/shm/apt-state/extended_states",
+                "install",
+                "--yes",
+                "racket",
+            ],
+            check=True,
+        )
+
+    def test_northflank_reads_timeout_and_apt_environment(self) -> None:
+        environment = {
+            "NIGHTLIES_REPO": "owner/repo",
+            "NIGHTLIES_BRANCH": "main",
+            "NIGHTLIES_COMMIT": "deadbeef",
+            "NIGHTLIES_TIMEOUT": "6hr",
+            "NIGHTLIES_PPA": "ppa:plt/racket",
+            "NIGHTLIES_APT": "racket",
+        }
+        with (
+            mock.patch.dict(os.environ, environment, clear=True),
+            mock.patch.object(sys, "argv", ["runner.py", "--mode", "northflank"]),
+            mock.patch.object(runner, "install_apt_dependencies") as install_dependencies,
+            mock.patch.object(runner, "run"),
+            mock.patch.object(runner, "run_branch", return_value=0) as run_branch,
+        ):
+            result = runner.main()
+
+        self.assertEqual(result, 0)
+        install_dependencies.assert_called_once_with(["ppa:plt/racket"], ["racket"])
+        bc, log_name = run_branch.call_args.args
+        self.assertEqual(bc.timeout, "6hr")
+        self.assertIsNone(log_name)
+
     def test_setup_failure_posts_to_slack(self) -> None:
         slack_output = mock.Mock()
         bc = SimpleNamespace(
-            config=SimpleNamespace(secrets=configparser.ConfigParser()),
+            secrets=configparser.ConfigParser(),
             slack_spec="workspace/channel",
             repo_name="testrepo",
             branch_name="main",
+            revision="origin/main",
+            shallow=False,
             branch_dir=Path("/tmp/testrepo/main"),
             base_url="https://nightly.example/",
             warn_branch=None,
@@ -1649,11 +1775,27 @@ class TestBranchRunner(unittest.TestCase):
                     subprocess.CompletedProcess(["git"], 0),
                     subprocess.CalledProcessError(128, ["git", "submodule", "update"]),
                 ],
-            ),
+            ) as run_mock,
         ):
             rc = runner.run_branch(cast(Any, bc), "setup-failure.log")
 
         self.assertEqual(rc, 1)
+        self.assertEqual(
+            run_mock.call_args_list,
+            [
+                mock.call(
+                    ["git", "-C", Path("/tmp/testrepo/main"), "reset", "--hard", "origin/main"],
+                    check=True,
+                ),
+                mock.call(
+                    [
+                        "git", "-C", Path("/tmp/testrepo/main"), "submodule", "update",
+                        "--init", "--recursive", "--force",
+                    ],
+                    check=True,
+                ),
+            ],
+        )
         slack_output.post.assert_called_once()
         branch, info = slack_output.post.call_args.args
         self.assertEqual(branch, "main")

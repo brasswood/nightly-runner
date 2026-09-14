@@ -3,10 +3,10 @@
 from typing import Any, Dict, List, Optional, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-import gzip, json, shlex, shutil, subprocess, sys, time
+import argparse, gzip, json, shlex, shutil, subprocess, sys, tempfile, time
 import signal
 import os
-import config, slack
+import apt, config, slack
 
 def log(msg: str) -> None:
     print(msg, flush=True)
@@ -26,6 +26,40 @@ def format_cmd(s: Sequence[str | Path]) -> str:
 def run(cmd: Sequence[str | Path], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
     log(f"Executing {format_cmd(cmd)}")
     return subprocess.run(cmd, **kwargs)
+
+
+class NorthflankAptRunner:
+    dryrun = False
+
+    def log(self, level: int, msg: str) -> None:
+        log(msg)
+
+    def exec(
+        self,
+        level: int,
+        cmd: Sequence[str | Path],
+    ) -> subprocess.CompletedProcess[bytes]:
+        actual_cmd = list(cmd)
+        if os.geteuid() == 0 and actual_cmd[0] == "sudo":
+            actual_cmd = actual_cmd[1:]
+        if actual_cmd[0] == "apt":
+            actual_cmd[1:1] = [
+                "-o", "Dir::State::extended_states=/dev/shm/apt-state/extended_states",
+            ]
+        if "--dry-run" in actual_cmd:
+            return run(actual_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True)
+        return run(actual_cmd, check=True)
+
+
+def install_apt_dependencies(ppas: List[str], packages: List[str]) -> None:
+    apt_runner = NorthflankAptRunner()
+    failed_ppas = apt.add_repositories(apt_runner, ppas)
+    if failed_ppas:
+        raise RuntimeError(f"Failed to add apt repositories: {', '.join(failed_ppas)}")
+    if packages:
+        updates = apt.check_updates(apt_runner, packages)
+        if updates:
+            apt.install(apt_runner, packages)
 
 def parse_time(to: str | None) -> float | None:
     if to is None:
@@ -139,14 +173,15 @@ def write_nightly_info(
             "files": report_files(branch_config.report_dir, compressed),
         }, f)
 
-def run_branch(bc: config.BranchConfig, log_name: str) -> int:
+def run_branch(bc: config.BranchConfig, log_name: str | None) -> int:
     log(f"Running branch {bc.branch_name} on repo {bc.repo_name}")
     info: Dict[str, str] = {}
-    slack_output = slack.make_output(bc.config.secrets, bc.slack_spec, bc.repo_name)
+    slack_output = slack.make_output(bc.secrets, bc.slack_spec, bc.repo_name)
     start: Optional[datetime] = None
     out: Optional[str] = None
 
     if bc.base_url:
+        assert log_name is not None
         import urllib.parse
         info["logurl"] = bc.base_url + "logs/" + urllib.parse.quote(log_name)
 
@@ -166,11 +201,16 @@ def run_branch(bc: config.BranchConfig, log_name: str) -> int:
     signal.signal(signal.SIGTERM, handle_sigterm)
 
     try:
-        run(["git", "-C", bc.branch_dir, "reset", "--hard", f"origin/{bc.branch_name}"], check=True)
-        run(["git", "-C", bc.branch_dir, "submodule", "update", "--init", "--recursive", "--force"], check=True)
+        run(["git", "-C", bc.branch_dir, "reset", "--hard", bc.revision], check=True)
+        submodule_cmd: List[str | Path] = [
+            "git", "-C", bc.branch_dir, "submodule", "update", "--init", "--recursive", "--force",
+        ]
+        if bc.shallow:
+            submodule_cmd.append("--depth=1")
+        run(submodule_cmd, check=True)
 
         out = run(
-            ["git", "-C", bc.branch_dir, "rev-parse", f"origin/{bc.branch_name}"],
+            ["git", "-C", bc.branch_dir, "rev-parse", bc.revision],
             capture_output=True, check=True
         ).stdout.decode("ascii").strip()
 
@@ -221,6 +261,7 @@ def run_branch(bc: config.BranchConfig, log_name: str) -> int:
                         slack_output.warn("report-size", msg)
 
                 if "url" not in info and bc.base_url:
+                    assert log_name is not None
                     name = f"{int(time.time())}:{bc.branch_filename}:{out[:8]}"
                     dest_dir = bc.reports_dir / bc.repo_name / name
                     report_url = bc.base_url + "reports/" + bc.repo_name + "/" + name
@@ -269,15 +310,16 @@ def run_branch(bc: config.BranchConfig, log_name: str) -> int:
         if slack_output:
             slack_output.warn("branch-size", msg)
 
-    log_file = bc.logs_dir / log_name
-    size = log_file.stat().st_size if log_file.exists() else 0
-    if bc.warn_log and size > bc.warn_log:
-        msg = (
-            f"Log size {format_size(size)} exceeds limit {format_size(bc.warn_log)}"
-        )
-        log(msg)
-        if slack_output:
-            slack_output.warn("log-size", msg)
+    if log_name is not None:
+        log_file = bc.logs_dir / log_name
+        size = log_file.stat().st_size if log_file.exists() else 0
+        if bc.warn_log and size > bc.warn_log:
+            msg = (
+                f"Log size {format_size(size)} exceeds limit {format_size(bc.warn_log)}"
+            )
+            log(msg)
+            if slack_output:
+                slack_output.warn("log-size", msg)
 
     info["result"] = f"*{status}*" if status != "success" else "success"
     if start is not None:
@@ -308,14 +350,53 @@ def run_branch(bc: config.BranchConfig, log_name: str) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) != 5:
-        print(f"Usage: {sys.argv[0]} <config_file> <repo> <branch> <log_name>", file=sys.stderr, flush=True)
-        return 2
+    parser = argparse.ArgumentParser(description="Run a branch nightly on SLURM or Northflank")
+    parser.add_argument("--mode", choices=["slurm", "northflank"], default="slurm")
+    parser.add_argument("config_file", nargs="?")
+    parser.add_argument("repo", nargs="?")
+    parser.add_argument("branch", nargs="?")
+    parser.add_argument("log_name", nargs="?")
+    args = parser.parse_args()
+    runner_args = (args.config_file, args.repo, args.branch, args.log_name)
 
-    config_file, repo, branch, log_name = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-    cfg = config.Config(config_file)
-    bc = config.BranchConfig(cfg, repo, branch)
-    return run_branch(bc, log_name)
+    if args.mode == "slurm":
+        if any(arg is None for arg in runner_args):
+            parser.error("slurm mode requires: <config_file> <repo> <branch> <log_name>")
+        config_file, repo, branch, log_name = runner_args
+        assert config_file is not None and repo is not None and branch is not None and log_name is not None
+        cfg = config.Config(config_file)
+        bc = config.BranchConfig(cfg, repo, branch)
+        return run_branch(bc, log_name)
+
+    if any(arg is not None for arg in runner_args):
+        parser.error("northflank mode does not take positional arguments")
+    repo = os.environ.get("NIGHTLIES_REPO")
+    branch = os.environ.get("NIGHTLIES_BRANCH")
+    commit = os.environ.get("NIGHTLIES_COMMIT")
+    if not repo or not branch or not commit:
+        parser.error(
+            "northflank mode requires NIGHTLIES_REPO, NIGHTLIES_BRANCH, and NIGHTLIES_COMMIT"
+        )
+
+    timeout = os.environ.get("NIGHTLIES_TIMEOUT")
+    ppas = os.environ.get("NIGHTLIES_PPA", "").split()
+    packages = os.environ.get("NIGHTLIES_APT", "").split()
+    install_apt_dependencies(ppas, packages)
+
+    with tempfile.TemporaryDirectory(prefix="nightlies-") as directory:
+        bc = config.BranchConfig.northflank(
+            repo, branch, commit, Path(directory), timeout=timeout,
+        )
+        bc.repo_dir.mkdir(parents=True)
+        run(["git", "init", "--quiet", f"--initial-branch={branch}", bc.branch_dir], check=True)
+        run([
+            "git", "-C", bc.branch_dir, "remote", "add", "origin",
+            config.repo_to_url(repo, protocol="https"),
+        ], check=True)
+        run([
+            "git", "-C", bc.branch_dir, "fetch", "--quiet", "--depth=1", "origin", commit,
+        ], check=True)
+        return run_branch(bc, None)
 
 
 if __name__ == "__main__":
