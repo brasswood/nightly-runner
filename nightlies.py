@@ -8,6 +8,7 @@ import configparser
 import json
 import shlex, shutil
 import slack, apt
+import northflank
 from config import parse_cores, parse_size, format_size_slurm, repo_to_url, short_repo_name
 import urllib.request, urllib.error
 
@@ -32,6 +33,7 @@ REPO_BADGES = [
     "never", # Never run this branch
 ]
 
+
 class NightlyRunner:
     def __init__(self, config_file : str) -> None:
         self.config_file = Path(config_file)
@@ -39,6 +41,7 @@ class NightlyRunner:
         self.data : Any = None
         self.log_path: Optional[Path] = None
         self.start: Optional[datetime] = None
+        self.northflank: northflank.Runner | None = None
 
     def update_system_repo(self, dir : str, repo : str, branch : str) -> None:
         if not Path(dir).is_dir():
@@ -80,6 +83,7 @@ class NightlyRunner:
         self.pid_file = Path(defaults.get("pid", "running.pid")).resolve()
         self.config_file = Path(defaults.get("conffile", str(self.config_file))).resolve()
         self.report_dir = Path(defaults.get("reports", "reports")).resolve()
+        self.northflank = None
 
         self.secrets = configparser.ConfigParser()
         if defaults.get("secrets"):
@@ -87,6 +91,9 @@ class NightlyRunner:
                 if not file.name.endswith(".conf"): continue
                 with file.open() as f:
                     self.secrets.read_file(f, source=f.name)
+
+        if defaults.get("northflank"):
+            self.northflank = northflank.Runner(self.secrets, defaults["northflank"])
 
         for name in self.config.sections():
             self.repos.append(Repository(self, name, self.config[name]))
@@ -240,6 +247,19 @@ class NightlyRunner:
                     self.log(1, f"Job {job_name} already queued; skipping")
                     continue
 
+                if branch.repo.runner_mode == "northflank":
+                    assert branch.repo.northflank is not None
+                    run_name = branch.repo.northflank.start_job(
+                        branch.repo.gh_name or branch.repo.url,
+                        branch.name,
+                        branch.current_commit,
+                        timeout=branch.repo.config.get("timeout"),
+                        ppa=branch.repo.config.get("ppa"),
+                        apt=branch.repo.config.get("apt"),
+                    )
+                    self.log(2, f"Started Northflank job {run_name}")
+                    continue
+
                 repo_full_name = branch.repo.gh_name or branch.repo.name
                 log_path = self.log_dir / log_name
                 wrap_cmd = shlex.join([
@@ -267,6 +287,14 @@ class NightlyRunner:
             except subprocess.CalledProcessError as e:
                 error_output = e.stdout.decode().strip() if e.stdout else ""
                 msg = f"Failed to queue branch {branch.name}: {error_output or f'exit code {e.returncode}'}"
+                self.log(1, msg)
+                if branch.slack:
+                    try:
+                        branch.slack.fatal(msg)
+                    except slack.SlackError as e:
+                        self.log(2, f"Slack error: {e}")
+            except northflank.NorthflankError as e:
+                msg = f"Failed to start Northflank job for branch {branch.name}: {e}"
                 self.log(1, msg)
                 if branch.slack:
                     try:
@@ -310,6 +338,12 @@ class Repository:
         self.image_file_name = configuration.get("image")
         self.cores = parse_cores(configuration.get("cores"))
         self.memory = parse_size(configuration.get("memory"))
+        self.runner_mode = configuration.get("runner", "slurm")
+        if self.runner_mode not in {"slurm", "northflank"}:
+            raise ValueError(f"Unknown runner: {self.runner_mode}")
+        self.northflank = runner.northflank
+        if self.runner_mode == "northflank" and self.northflank is None:
+            raise ValueError("Northflank runner requires a northflank=project-id/job-id setting")
         
         self.branches : Dict[str, Branch] = {}
 
@@ -441,6 +475,10 @@ class Repository:
             pr = branch.config.get("pr")
             if pr:
                 branch.badges.append(f"pr#{pr}")
+
+        if self.runner_mode == "northflank":
+            self.runner.log(2, "Northflank runner does not track queued branches")
+            return
 
         # Mark branches that are currently queued in slurm
         try:

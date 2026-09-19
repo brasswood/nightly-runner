@@ -27,6 +27,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from nightlies import NightlyRunner
+import nightlies
+import northflank
 import apt
 import cli
 import config
@@ -131,6 +133,45 @@ class TestApt(unittest.TestCase):
 
         self.assertTrue(apt._has_repository("ppa:owner/name", self.source_list, self.sources_dir))
         self.assertFalse(apt._has_repository("ppa:other/name", self.source_list, self.sources_dir))
+
+
+class TestNorthflank(unittest.TestCase):
+    def test_start_job_posts_runtime_environment(self) -> None:
+        response = FakeResponse(b'{"data":{"id":"run-id","runName":"run-name"}}')
+        secrets = configparser.ConfigParser()
+        secrets["northflank"] = {"token": "secret"}
+        job = northflank.Runner(secrets, "project/job")
+
+        with mock.patch.object(northflank.urllib.request, "urlopen", return_value=response) as urlopen:
+            result = job.start_job(
+                "owner/repo",
+                "feature/test",
+                "deadbeef",
+                timeout="6hr",
+                ppa="ppa:owner/name",
+                apt="racket",
+            )
+
+        self.assertEqual(result, "run-name")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(
+            request.full_url,
+            "https://api.northflank.com/v1/projects/project/jobs/job/runs",
+        )
+        self.assertEqual(request.get_header("Authorization"), "Bearer secret")
+        self.assertEqual(
+            json.loads(cast(bytes, request.data)),
+            {
+                "runtimeEnvironment": {
+                    "NIGHTLIES_REPO": "owner/repo",
+                    "NIGHTLIES_BRANCH": "feature/test",
+                    "NIGHTLIES_COMMIT": "deadbeef",
+                    "NIGHTLIES_TIMEOUT": "6hr",
+                    "NIGHTLIES_PPA": "ppa:owner/name",
+                    "NIGHTLIES_APT": "racket",
+                },
+            },
+        )
 
 
 class TestCli(unittest.TestCase):
@@ -1363,6 +1404,56 @@ class TestNightlyRunnerHarness(unittest.TestCase):
         self.assertIn(f"fetch --quiet --depth=1 origin {requested_commit}", result.stdout)
         self.assertIn(f"reset --hard {requested_commit}", result.stdout)
         self.assertIn("submodule update --init --recursive --force --depth=1", result.stdout)
+
+    def test_northflank_scheduler_starts_configured_job(self) -> None:
+        secrets_dir = self.tmpdir / "secrets"
+        secrets_dir.mkdir()
+        (secrets_dir / "northflank.conf").write_text("[northflank]\ntoken = secret\n")
+        self.write_config(
+            repo_updates={
+                "branches": "main",
+                "runner": "northflank",
+                "timeout": "6hr",
+                "ppa": "ppa:owner/name",
+                "apt": "racket",
+            },
+            default_updates={
+                "secrets": str(secrets_dir),
+                "northflank": "project/job",
+            },
+        )
+        nightly_runner = NightlyRunner(str(self.config_file))
+        nightly_runner.load()
+        nightly_runner.dryrun = False
+
+        with (
+            mock.patch.object(nightlies.apt, "add_repositories", return_value=[]),
+            mock.patch.object(nightlies.apt, "check_updates", return_value=[]),
+            mock.patch.object(
+                northflank.Runner,
+                "start_job",
+                autospec=True,
+                return_value="run-name",
+            ) as start_job,
+        ):
+            old_cwd, _ = self.with_cwd(self.tmpdir)
+            try:
+                nightly_runner.run()
+            finally:
+                os.chdir(old_cwd)
+
+        self.assertEqual(nightly_runner.secrets["northflank"]["token"], "secret")
+        self.assertIs(start_job.call_args.args[0], nightly_runner.northflank)
+        self.assertEqual(start_job.call_args.args[1:4], (
+            str(self.remote_dir),
+            "main",
+            nightly_runner.repos[0].branches["main"].current_commit,
+        ))
+        self.assertEqual(start_job.call_args.kwargs, {
+            "timeout": "6hr",
+            "ppa": "ppa:owner/name",
+            "apt": "racket",
+        })
 
     def test_dryrun_rejects_when_sync_is_running(self) -> None:
         self.write_config(repo_updates={})
