@@ -845,6 +845,24 @@ class TestCli(unittest.TestCase):
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.data, b"")
 
+    def test_cmd_sync_waits_for_started_sync_to_finish(self) -> None:
+        states = iter([False, True, True, False])
+
+        with (
+            mock.patch.object(cli.ClientConfig, "post") as post,
+            mock.patch.object(
+                cli.ClientConfig,
+                "fetch_json",
+                side_effect=lambda *_args: {"sync_disabled": next(states), "start_targets": []},
+            ),
+            mock.patch.object(cli.time, "sleep") as sleep,
+        ):
+            rc = cli.cmd_sync(self.client_config(), wait=True)
+
+        self.assertEqual(rc, 0)
+        post.assert_called_once_with(cli.SYNC_PATH, {})
+        self.assertEqual(sleep.call_count, 3)
+
     def test_cmd_sync_reports_post_race_as_sync_running(self) -> None:
         conflict = urllib.error.HTTPError(
             cli.SYNC_PATH,
