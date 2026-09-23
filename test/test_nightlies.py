@@ -901,6 +901,38 @@ class TestCli(unittest.TestCase):
             with self.assertRaisesRegex(cli.CliError, "^Nightly sync already running$"):
                 cli.cmd_sync(self.client_config())
 
+    def test_wait_for_sync_errors_if_sync_never_starts(self) -> None:
+        with (
+            mock.patch.object(
+                cli.ClientConfig,
+                "fetch_json",
+                return_value={"sync_disabled": False, "start_targets": []},
+            ),
+            mock.patch.object(cli.time, "monotonic", return_value=0),
+            mock.patch.object(cli, "SYNC_START_TIMEOUT", 0),
+            mock.patch.object(cli.time, "sleep") as sleep,
+        ):
+            with self.assertRaisesRegex(cli.CliError, "Nightly sync did not start"):
+                cli.wait_for_sync(self.client_config(), started=False)
+
+        sleep.assert_not_called()
+
+    def test_wait_for_sync_errors_if_sync_never_finishes(self) -> None:
+        with (
+            mock.patch.object(
+                cli.ClientConfig,
+                "fetch_json",
+                return_value={"sync_disabled": True, "start_targets": []},
+            ),
+            mock.patch.object(cli.time, "monotonic", return_value=0),
+            mock.patch.object(cli, "SYNC_FINISH_TIMEOUT", 0),
+            mock.patch.object(cli.time, "sleep") as sleep,
+        ):
+            with self.assertRaisesRegex(cli.CliError, "Nightly sync did not finish before timeout"):
+                cli.wait_for_sync(self.client_config(), started=True)
+
+        sleep.assert_not_called()
+
     def test_cmd_start_posts_server_repo_token(self) -> None:
         requests: list[urllib.request.Request] = []
 
