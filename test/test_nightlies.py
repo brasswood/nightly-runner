@@ -826,22 +826,6 @@ class TestCli(unittest.TestCase):
             ],
         )
 
-    def test_cmd_sync_refuses_when_ui_disables_sync(self) -> None:
-        state = cli.IndexState(True, [])
-
-        with (
-            mock.patch.object(cli, "load_client_config", return_value=self.client_config()),
-            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
-                "sync_disabled": True,
-                "start_targets": [],
-            }),
-            mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
-        ):
-            rc = cli.main(["sync"])
-
-        self.assertEqual(rc, 1)
-        self.assertEqual(stderr.getvalue(), "error: Nightly sync already running\n")
-
     def test_cmd_sync_posts_to_dryrun_endpoint(self) -> None:
         requests: list[urllib.request.Request] = []
 
@@ -851,13 +835,7 @@ class TestCli(unittest.TestCase):
                 requests.append(cast(urllib.request.Request, request))
                 return FakeResponse(b"ok")
 
-        with (
-            self.client_open_patch(CapturingOpener()),
-            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
-                "sync_disabled": False,
-                "start_targets": [],
-            }),
-        ):
+        with self.client_open_patch(CapturingOpener()):
             rc = cli.cmd_sync(self.client_config())
 
         self.assertEqual(rc, 0)
@@ -866,6 +844,19 @@ class TestCli(unittest.TestCase):
         self.assertEqual(request.full_url, urllib.parse.urljoin(self.client_config().index_url, cli.SYNC_PATH))
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.data, b"")
+
+    def test_cmd_sync_reports_post_race_as_sync_running(self) -> None:
+        conflict = urllib.error.HTTPError(
+            cli.SYNC_PATH,
+            409,
+            "Conflict",
+            hdrs=None,
+            fp=io.BytesIO(b"Nightly sync already running"),
+        )
+
+        with mock.patch.object(cli.ClientConfig, "post", side_effect=conflict):
+            with self.assertRaisesRegex(cli.CliError, "^Nightly sync already running$"):
+                cli.cmd_sync(self.client_config())
 
     def test_cmd_start_posts_server_repo_token(self) -> None:
         requests: list[urllib.request.Request] = []

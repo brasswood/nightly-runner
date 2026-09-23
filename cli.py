@@ -650,10 +650,12 @@ def cmd_setup(url: str) -> int:
 
 
 def cmd_sync(client_config: ClientConfig) -> int:
-    index_state = parse_control_state(client_config.fetch_json(API_PATH))
-    if index_state.sync_disabled:
-        raise CliError("Nightly sync already running")
-    client_config.post(SYNC_PATH, {})
+    try:
+        client_config.post(SYNC_PATH, {})
+    except urllib.error.HTTPError as exc:
+        if exc.code != 409:
+            raise
+        raise CliError("Nightly sync already running") from exc
     return 0
 
 
