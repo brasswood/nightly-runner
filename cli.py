@@ -441,13 +441,13 @@ def wait_for_started_job(client_config: ClientConfig, repo: str, branch: str) ->
             if job.repo == repo and job.branch == branch:
                 print(f"Started branch {branch!r} on repo {repo!r}")
                 return job
-        if jobs:
-            job = jobs[0]
-            raise CliError(
-                f"Branch {branch!r} on repo {repo!r} was queued, but branch {job.branch!r} "
-                f"on repo {job.repo!r} is running and must complete first"
-            )
         if time.monotonic() >= deadline:
+            if jobs:
+                running = ", ".join(f"{job.branch!r} on repo {job.repo!r}" for job in jobs)
+                raise CliError(
+                    f"Branch {branch!r} on repo {repo!r} did not start before timeout; "
+                    f"other running branches must complete first: {running}"
+                )
             raise CliError(f"Branch {branch!r} on repo {repo!r} was queued but did not start before timeout")
         time.sleep(SYNC_POLL_INTERVAL)
 
