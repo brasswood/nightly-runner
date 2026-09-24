@@ -36,6 +36,7 @@ START_PATH = "/runnow"
 SYNC_POLL_INTERVAL = 1.0
 SYNC_START_TIMEOUT = 10.0
 SYNC_FINISH_TIMEOUT = 30 * 60.0
+JOB_FINISH_TIMEOUT = 24 * 60 * 60.0
 
 
 class CliError(Exception):
@@ -430,6 +431,39 @@ def parse_running_jobs(payload: str) -> list[RunningJob]:
         )
         for match in RUNNING_JOB_RE.finditer(payload)
     ]
+
+
+def wait_for_started_job(client_config: ClientConfig, repo: str, branch: str) -> RunningJob:
+    deadline = time.monotonic() + SYNC_START_TIMEOUT
+    while True:
+        jobs = parse_running_jobs(client_config.fetch(INDEX_PATH))
+        for job in jobs:
+            if job.repo == repo and job.branch == branch:
+                print(f"Started branch {branch!r} on repo {repo!r}")
+                return job
+        if jobs:
+            job = jobs[0]
+            raise CliError(
+                f"Branch {branch!r} on repo {repo!r} was queued, but branch {job.branch!r} "
+                f"on repo {job.repo!r} is running and must complete first"
+            )
+        if time.monotonic() >= deadline:
+            raise CliError(f"Branch {branch!r} on repo {repo!r} was queued but did not start before timeout")
+        time.sleep(SYNC_POLL_INTERVAL)
+
+
+def reject_queued_job(client_config: ClientConfig, repo: str, branch: str) -> None:
+    jobs = parse_running_jobs(client_config.fetch(INDEX_PATH))
+    for job in jobs:
+        if job.repo == repo and job.branch == branch:
+            raise CliError(f"A previous run of branch {branch!r} on repo {repo!r} is still running")
+    if jobs:
+        job = jobs[0]
+        raise CliError(
+            f"Branch {branch!r} on repo {repo!r} is already queued; branch {job.branch!r} "
+            f"on repo {job.repo!r} is running and must complete first"
+        )
+    raise CliError(f"Branch {branch!r} on repo {repo!r} is already queued but has not started")
 
 
 ## Logs
