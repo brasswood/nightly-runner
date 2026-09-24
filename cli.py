@@ -779,14 +779,33 @@ def cmd_sync(client_config: ClientConfig, wait: bool = False) -> int:
     return 0
 
 
-def cmd_start(client_config: ClientConfig, repo: str, branch: str) -> int:
-    index_state = parse_control_state(client_config.fetch_json(API_PATH))
-    target = resolve_start_target(index_state, repo, branch)
-    if index_state.sync_disabled:
-        raise CliError("Nightly sync already running")
-    if target.disabled:
-        raise CliError(f"Branch {target.branch} on {target.repo} already queued")
-    client_config.post(START_PATH, {"repo": target.repo, "branch": target.branch})
+def cmd_start(client_config: ClientConfig, repo: str, branch: str, wait: bool = False) -> int:
+    if not wait:
+        state = parse_control_state(client_config.fetch_json(API_PATH))
+        target = resolve_start_target(state, repo, branch)
+        if state.sync_disabled:
+            raise CliError("Nightly sync already running")
+        if target.disabled:
+            raise CliError(f"Branch {target.branch} on {target.repo} already queued")
+        client_config.post(START_PATH, {"repo": target.repo, "branch": target.branch})
+        return 0
+
+    while True:
+        try:
+            client_config.post(START_PATH, {"repo": repo, "branch": branch})
+        except urllib.error.HTTPError as exc:
+            message = format_http_error(exc)
+            if message == "Nightly sync already running":
+                wait_for_sync(client_config, started=True)
+                continue
+            if message.startswith("Job nightly:"):
+                reject_queued_job(client_config, repo, branch)
+            raise CliError(message) from exc
+        break
+
+    job = wait_for_started_job(client_config, repo, branch)
+    wait_for_job_completion(client_config, repo, branch)
+    require_successful_job(client_config, job)
     return 0
 
 
@@ -895,6 +914,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_run_selector_args(list_parser)
 
     start_parser = subparsers.add_parser("start", help="Start a single repo branch run from the web UI.")
+    start_parser.add_argument("--wait", action="store_true", help="Wait until the branch run finishes.")
     start_parser.add_argument("branch", nargs="?", default=None, help="Branch name.")
 
     log_parser = subparsers.add_parser("log", help="Print a log for a repo branch.")
@@ -925,7 +945,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in {"log", "start", "status", "open"} and args.branch is None:
             args.branch = current_branch(".")
         if args.command == "start":
-            return cmd_start(client_config, repo, args.branch)
+            return cmd_start(client_config, repo, args.branch, args.wait)
         selector = RunSelector(args.branch, args.date, args.time)
         if args.command == "list":
             return cmd_list(client_config, repo, selector)
