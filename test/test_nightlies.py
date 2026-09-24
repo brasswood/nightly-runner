@@ -911,6 +911,35 @@ class TestCli(unittest.TestCase):
             with self.assertRaisesRegex(cli.CliError, "already queued but has not started"):
                 cli.reject_queued_job(self.client_config(), "herbie", "feature/test")
 
+    def test_wait_for_job_completion_polls_disabled_target(self) -> None:
+        disabled = iter([True, False])
+        with (
+            mock.patch.object(
+                cli.ClientConfig,
+                "fetch_json",
+                side_effect=lambda *_args: {
+                    "sync_disabled": False,
+                    "start_targets": [{"repo": "herbie", "branch": "feature/test", "disabled": next(disabled)}],
+                },
+            ),
+            mock.patch.object(cli.time, "sleep") as sleep,
+        ):
+            cli.wait_for_job_completion(self.client_config(), "herbie", "feature/test")
+
+        sleep.assert_called_once_with(cli.SYNC_POLL_INTERVAL)
+
+    def test_wait_for_job_completion_times_out(self) -> None:
+        state = {"sync_disabled": False, "start_targets": [
+            {"repo": "herbie", "branch": "feature/test", "disabled": True},
+        ]}
+        with (
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value=state),
+            mock.patch.object(cli.time, "monotonic", return_value=0),
+            mock.patch.object(cli, "JOB_FINISH_TIMEOUT", 0),
+        ):
+            with self.assertRaisesRegex(cli.CliError, "did not finish before timeout"):
+                cli.wait_for_job_completion(self.client_config(), "herbie", "feature/test")
+
     def test_cmd_sync_posts_to_dryrun_endpoint(self) -> None:
         requests: list[urllib.request.Request] = []
 
