@@ -466,6 +466,39 @@ def reject_queued_job(client_config: ClientConfig, repo: str, branch: str) -> No
     raise CliError(f"Branch {branch!r} on repo {repo!r} is already queued but has not started")
 
 
+def wait_for_job_completion(client_config: ClientConfig, repo: str, branch: str) -> None:
+    deadline = time.monotonic() + JOB_FINISH_TIMEOUT
+    while True:
+        state = parse_control_state(client_config.fetch_json(API_PATH))
+        target = resolve_start_target(state, repo, branch)
+        if not target.disabled:
+            return
+        if time.monotonic() >= deadline:
+            raise CliError(f"Branch {branch!r} on repo {repo!r} did not finish before timeout")
+        time.sleep(SYNC_POLL_INTERVAL)
+
+
+def require_successful_job(client_config: ClientConfig, job: RunningJob) -> None:
+    try:
+        report_url = fetch_published_report(client_config, job.repo, job.log)
+        manifest = fetch_manifest(client_config, report_url)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+        raise CliError(
+            f"Branch {job.branch!r} on repo {job.repo!r} did not publish nightly_info.json"
+        ) from exc
+    except CliError as exc:
+        raise CliError(
+            f"Branch {job.branch!r} on repo {job.repo!r} did not publish nightly_info.json"
+        ) from exc
+    if manifest.status != "success":
+        raise CliError(
+            f"Branch {job.branch!r} on repo {job.repo!r} finished with status {manifest.status!r}"
+        )
+    print(f"Branch {job.branch!r} on repo {job.repo!r} completed successfully")
+
+
 ## Logs
 
 COMPLETE_RE = re.compile(r"^Nightly used memory=.*timeout=.*$", re.MULTILINE)
