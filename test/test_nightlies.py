@@ -1131,6 +1131,25 @@ class TestCli(unittest.TestCase):
         completed.assert_called_once_with(self.client_config(), "herbie", "feature/test")
         successful.assert_called_once_with(self.client_config(), job)
 
+    def test_cmd_start_wait_for_start_stops_after_start(self) -> None:
+        job = cli.RunningJob("herbie", "feature/test", "exact.log")
+        with (
+            mock.patch.object(cli.ClientConfig, "post"),
+            mock.patch.object(cli, "wait_for_started_job", return_value=job),
+            mock.patch.object(cli, "wait_for_job_completion") as completed,
+            mock.patch.object(cli, "require_successful_job") as successful,
+        ):
+            rc = cli.cmd_start(self.client_config(), "herbie", "feature/test", wait_for_start=True)
+
+        self.assertEqual(rc, 0)
+        completed.assert_not_called()
+        successful.assert_not_called()
+
+    def test_start_wait_options_are_incompatible(self) -> None:
+        with mock.patch("sys.stderr", new_callable=io.StringIO):
+            with self.assertRaises(SystemExit):
+                cli.build_parser().parse_args(["start", "--wait", "--wait-for-start"])
+
     def test_cmd_start_wait_retries_after_sync(self) -> None:
         conflict = urllib.error.HTTPError(
             cli.START_PATH, 409, "Conflict", hdrs=None,
