@@ -885,6 +885,18 @@ class TestCli(unittest.TestCase):
             ):
                 cli.wait_for_started_job(self.client_config(), "herbie", "feature/test")
 
+    def test_wait_for_started_job_times_out_without_running_jobs(self) -> None:
+        with (
+            mock.patch.object(cli.ClientConfig, "fetch", return_value=""),
+            mock.patch.object(cli.time, "monotonic", return_value=0),
+            mock.patch.object(cli, "SYNC_START_TIMEOUT", 0),
+            mock.patch.object(cli.time, "sleep") as sleep,
+        ):
+            with self.assertRaisesRegex(cli.CliError, "was queued but did not start before timeout"):
+                cli.wait_for_started_job(self.client_config(), "herbie", "feature/test")
+
+        sleep.assert_not_called()
+
     def test_reject_queued_job_reports_previous_matching_run(self) -> None:
         running = """
             <tr><td><form action="/logs/run.log"></form>
@@ -1137,6 +1149,21 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(post.call_count, 2)
         sync.assert_called_once_with(self.client_config(), started=True)
+
+    def test_cmd_start_wait_rejects_already_queued_branch(self) -> None:
+        conflict = urllib.error.HTTPError(
+            cli.START_PATH, 409, "Conflict", hdrs=None,
+            fp=io.BytesIO(b"Job nightly:herbie:feature_2ftest already queued"),
+        )
+        queued = cli.CliError("A previous run is still running")
+        with (
+            mock.patch.object(cli.ClientConfig, "post", side_effect=conflict),
+            mock.patch.object(cli, "reject_queued_job", side_effect=queued) as reject,
+        ):
+            with self.assertRaisesRegex(cli.CliError, "previous run is still running"):
+                cli.cmd_start(self.client_config(), "herbie", "feature/test", wait=True)
+
+        reject.assert_called_once_with(self.client_config(), "herbie", "feature/test")
 
     def test_cmd_start_refuses_queued_branch(self) -> None:
         state = cli.IndexState(False, [cli.StartTarget("herbie", "feature/test", True)])
