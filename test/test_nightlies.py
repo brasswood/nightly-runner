@@ -854,7 +854,7 @@ class TestCli(unittest.TestCase):
             <tr><td><form action="/logs/main.log"></form>
             <td>Running <kbd>main</kbd> on <kbd>ruler</kbd>
         """
-        running = """
+        running = waiting + """
             <tr><td><form action="/logs/run.log"></form>
             <td>Running <kbd>feature/test</kbd> on <kbd>herbie</kbd>
         """
