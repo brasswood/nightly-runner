@@ -1103,6 +1103,41 @@ class TestCli(unittest.TestCase):
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.data, b"repo=herbie&branch=feature%2Ftest")
 
+    def test_cmd_start_wait_runs_full_wait_sequence(self) -> None:
+        job = cli.RunningJob("herbie", "feature/test", "exact.log")
+        with (
+            mock.patch.object(cli.ClientConfig, "post") as post,
+            mock.patch.object(cli, "wait_for_started_job", return_value=job) as started,
+            mock.patch.object(cli, "wait_for_job_completion") as completed,
+            mock.patch.object(cli, "require_successful_job") as successful,
+        ):
+            rc = cli.cmd_start(self.client_config(), "herbie", "feature/test", wait=True)
+
+        self.assertEqual(rc, 0)
+        post.assert_called_once_with(cli.START_PATH, {"repo": "herbie", "branch": "feature/test"})
+        started.assert_called_once_with(self.client_config(), "herbie", "feature/test")
+        completed.assert_called_once_with(self.client_config(), "herbie", "feature/test")
+        successful.assert_called_once_with(self.client_config(), job)
+
+    def test_cmd_start_wait_retries_after_sync(self) -> None:
+        conflict = urllib.error.HTTPError(
+            cli.START_PATH, 409, "Conflict", hdrs=None,
+            fp=io.BytesIO(b"Nightly sync already running"),
+        )
+        job = cli.RunningJob("herbie", "main", "run.log")
+        with (
+            mock.patch.object(cli.ClientConfig, "post", side_effect=[conflict, None]) as post,
+            mock.patch.object(cli, "wait_for_sync") as sync,
+            mock.patch.object(cli, "wait_for_started_job", return_value=job),
+            mock.patch.object(cli, "wait_for_job_completion"),
+            mock.patch.object(cli, "require_successful_job"),
+        ):
+            rc = cli.cmd_start(self.client_config(), "herbie", "main", wait=True)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(post.call_count, 2)
+        sync.assert_called_once_with(self.client_config(), started=True)
+
     def test_cmd_start_refuses_queued_branch(self) -> None:
         state = cli.IndexState(False, [cli.StartTarget("herbie", "feature/test", True)])
 
