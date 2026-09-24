@@ -7,6 +7,7 @@ import argparse
 import datetime
 import getpass
 import gzip
+import html
 import itertools
 import json
 import os
@@ -25,6 +26,7 @@ import webbrowser
 ## Setup & config file
 
 STATE_FILENAME = "state.json"
+INDEX_PATH = "/"
 API_PATH = "/api"
 API_LOGS_PATH = "/api/logs"
 LOG_PAGE_SIZE = 10
@@ -159,6 +161,13 @@ class StartTarget:
     repo: str
     branch: str
     disabled: bool
+
+
+@dataclass(frozen=True)
+class RunningJob:
+    repo: str
+    branch: str
+    log: str
 
 
 @dataclass(frozen=True)
@@ -403,6 +412,24 @@ def resolve_start_target(
             "if you just pushed it to GitHub, run `nightlies sync` and try again"
         )
     raise CliError(f"repo {repo!r} is not configured")
+
+
+RUNNING_JOB_RE = re.compile(
+    r'<tr>(?:(?!<tr>).)*?<form action="/logs/([^"?]+)"'
+    r'(?:(?!<tr>).)*?Running\s*<kbd>([^<]*)</kbd>\s*on\s*<kbd>([^<]*)</kbd>',
+    re.DOTALL,
+)
+
+
+def parse_running_jobs(payload: str) -> list[RunningJob]:
+    return [
+        RunningJob(
+            repo=html.unescape(match.group(3)),
+            branch=html.unescape(match.group(2)),
+            log=urllib.parse.unquote(match.group(1)),
+        )
+        for match in RUNNING_JOB_RE.finditer(payload)
+    ]
 
 
 ## Logs
