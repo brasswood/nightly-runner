@@ -940,6 +940,35 @@ class TestCli(unittest.TestCase):
             with self.assertRaisesRegex(cli.CliError, "did not finish before timeout"):
                 cli.wait_for_job_completion(self.client_config(), "herbie", "feature/test")
 
+    def test_require_successful_job_checks_exact_log_manifest(self) -> None:
+        job = cli.RunningJob("herbie", "feature/test", "exact.log")
+        with (
+            mock.patch.object(cli, "fetch_published_report", return_value="/reports/run") as report,
+            mock.patch.object(cli, "fetch_manifest", return_value=SimpleNamespace(status="success")),
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+        ):
+            cli.require_successful_job(self.client_config(), job)
+
+        report.assert_called_once_with(self.client_config(), "herbie", "exact.log")
+        self.assertEqual(stdout.getvalue(), "Branch 'feature/test' on repo 'herbie' completed successfully\n")
+
+    def test_require_successful_job_rejects_missing_manifest(self) -> None:
+        not_found = urllib.error.HTTPError("manifest", 404, "Not Found", hdrs=None, fp=None)
+        with (
+            mock.patch.object(cli, "fetch_published_report", return_value="/reports/run"),
+            mock.patch.object(cli, "fetch_manifest", side_effect=not_found),
+        ):
+            with self.assertRaisesRegex(cli.CliError, "did not publish nightly_info.json"):
+                cli.require_successful_job(self.client_config(), cli.RunningJob("herbie", "main", "run.log"))
+
+    def test_require_successful_job_rejects_failure_status(self) -> None:
+        with (
+            mock.patch.object(cli, "fetch_published_report", return_value="/reports/run"),
+            mock.patch.object(cli, "fetch_manifest", return_value=SimpleNamespace(status="failure")),
+        ):
+            with self.assertRaisesRegex(cli.CliError, "finished with status 'failure'"):
+                cli.require_successful_job(self.client_config(), cli.RunningJob("herbie", "main", "run.log"))
+
     def test_cmd_sync_posts_to_dryrun_endpoint(self) -> None:
         requests: list[urllib.request.Request] = []
 
