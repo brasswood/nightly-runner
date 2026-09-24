@@ -885,6 +885,32 @@ class TestCli(unittest.TestCase):
             ):
                 cli.wait_for_started_job(self.client_config(), "herbie", "feature/test")
 
+    def test_reject_queued_job_reports_previous_matching_run(self) -> None:
+        running = """
+            <tr><td><form action="/logs/run.log"></form>
+            <td>Running <kbd>feature/test</kbd> on <kbd>herbie</kbd>
+        """
+        with mock.patch.object(cli.ClientConfig, "fetch", return_value=running):
+            with self.assertRaisesRegex(cli.CliError, "previous run .* is still running"):
+                cli.reject_queued_job(self.client_config(), "herbie", "feature/test")
+
+    def test_reject_queued_job_reports_other_running_branch(self) -> None:
+        running = """
+            <tr><td><form action="/logs/main.log"></form>
+            <td>Running <kbd>main</kbd> on <kbd>ruler</kbd>
+        """
+        with mock.patch.object(cli.ClientConfig, "fetch", return_value=running):
+            with self.assertRaisesRegex(
+                cli.CliError,
+                "already queued; branch 'main' on repo 'ruler' is running and must complete first",
+            ):
+                cli.reject_queued_job(self.client_config(), "herbie", "feature/test")
+
+    def test_reject_queued_job_reports_pending_branch(self) -> None:
+        with mock.patch.object(cli.ClientConfig, "fetch", return_value=""):
+            with self.assertRaisesRegex(cli.CliError, "already queued but has not started"):
+                cli.reject_queued_job(self.client_config(), "herbie", "feature/test")
+
     def test_cmd_sync_posts_to_dryrun_endpoint(self) -> None:
         requests: list[urllib.request.Request] = []
 
