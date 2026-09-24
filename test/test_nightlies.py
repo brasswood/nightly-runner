@@ -826,6 +826,29 @@ class TestCli(unittest.TestCase):
             ],
         )
 
+    def test_parse_running_jobs_reads_branch_status_rows(self) -> None:
+        jobs = cli.parse_running_jobs("""
+            <tr>
+              <td><form action="/logs/coordinator.log"><button>Log</button></form>
+              <td>Nightly running on PID <kbd>123</kbd>
+            <tr>
+              <td><form action="/logs/job%20one.log"><button>Log</button></form>
+              <td>Running <kbd>feature/test</kbd> on <kbd>herbie</kbd>
+                  as job <kbd>42</kbd>
+            <tr>
+              <td><form action="/logs/job-two.log"><button>Log</button></form>
+              <td>Running <kbd>fix&lt;parser&gt;</kbd> on <kbd>ruler</kbd>
+                  as job <kbd>43</kbd>
+        """)
+
+        self.assertEqual(
+            jobs,
+            [
+                cli.RunningJob("herbie", "feature/test", "job one.log"),
+                cli.RunningJob("ruler", "fix<parser>", "job-two.log"),
+            ],
+        )
+
     def test_cmd_sync_posts_to_dryrun_endpoint(self) -> None:
         requests: list[urllib.request.Request] = []
 
