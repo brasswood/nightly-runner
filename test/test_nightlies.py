@@ -849,6 +849,42 @@ class TestCli(unittest.TestCase):
             ],
         )
 
+    def test_wait_for_started_job_polls_until_target_runs(self) -> None:
+        waiting = """
+            <tr><td><form action="/logs/main.log"></form>
+            <td>Running <kbd>main</kbd> on <kbd>ruler</kbd>
+        """
+        running = """
+            <tr><td><form action="/logs/run.log"></form>
+            <td>Running <kbd>feature/test</kbd> on <kbd>herbie</kbd>
+        """
+        with (
+            mock.patch.object(cli.ClientConfig, "fetch", side_effect=[waiting, running]),
+            mock.patch.object(cli.time, "sleep") as sleep,
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+        ):
+            job = cli.wait_for_started_job(self.client_config(), "herbie", "feature/test")
+
+        self.assertEqual(job, cli.RunningJob("herbie", "feature/test", "run.log"))
+        sleep.assert_called_once_with(cli.SYNC_POLL_INTERVAL)
+        self.assertEqual(stdout.getvalue(), "Started branch 'feature/test' on repo 'herbie'\n")
+
+    def test_wait_for_started_job_reports_other_branches_at_timeout(self) -> None:
+        running = """
+            <tr><td><form action="/logs/main.log"></form>
+            <td>Running <kbd>main</kbd> on <kbd>ruler</kbd>
+        """
+        with (
+            mock.patch.object(cli.ClientConfig, "fetch", return_value=running),
+            mock.patch.object(cli.time, "monotonic", return_value=0),
+            mock.patch.object(cli, "SYNC_START_TIMEOUT", 0),
+        ):
+            with self.assertRaisesRegex(
+                cli.CliError,
+                "other running branches must complete first: 'main' on repo 'ruler'",
+            ):
+                cli.wait_for_started_job(self.client_config(), "herbie", "feature/test")
+
     def test_cmd_sync_posts_to_dryrun_endpoint(self) -> None:
         requests: list[urllib.request.Request] = []
 
