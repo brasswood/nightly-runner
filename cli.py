@@ -777,8 +777,14 @@ def cmd_sync(client_config: ClientConfig, wait: bool = False) -> int:
     return 0
 
 
-def cmd_start(client_config: ClientConfig, repo: str, branch: str, wait: bool = False) -> int:
-    if not wait:
+def cmd_start(
+    client_config: ClientConfig,
+    repo: str,
+    branch: str,
+    wait: bool = False,
+    wait_for_start: bool = False,
+) -> int:
+    if not wait and not wait_for_start:
         state = parse_control_state(client_config.fetch_json(API_PATH))
         target = resolve_start_target(state, repo, branch)
         if state.sync_disabled:
@@ -802,6 +808,8 @@ def cmd_start(client_config: ClientConfig, repo: str, branch: str, wait: bool = 
         break
 
     job = wait_for_started_job(client_config, repo, branch)
+    if wait_for_start:
+        return 0
     wait_for_job_completion(client_config, repo, branch)
     require_successful_job(client_config, job)
     return 0
@@ -912,7 +920,9 @@ def build_parser() -> argparse.ArgumentParser:
     add_run_selector_args(list_parser)
 
     start_parser = subparsers.add_parser("start", help="Start a single repo branch run from the web UI.")
-    start_parser.add_argument("--wait", action="store_true", help="Wait until the branch run finishes.")
+    start_wait = start_parser.add_mutually_exclusive_group()
+    start_wait.add_argument("--wait", action="store_true", help="Wait until the branch run finishes.")
+    start_wait.add_argument("--wait-for-start", action="store_true", help="Wait until the branch run starts.")
     start_parser.add_argument("branch", nargs="?", default=None, help="Branch name.")
 
     log_parser = subparsers.add_parser("log", help="Print a log for a repo branch.")
@@ -943,7 +953,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in {"log", "start", "status", "open"} and args.branch is None:
             args.branch = current_branch(".")
         if args.command == "start":
-            return cmd_start(client_config, repo, args.branch, args.wait)
+            return cmd_start(client_config, repo, args.branch, args.wait, args.wait_for_start)
         selector = RunSelector(args.branch, args.date, args.time)
         if args.command == "list":
             return cmd_list(client_config, repo, selector)
