@@ -658,7 +658,7 @@ def download_report_files(
 ) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8") as config_file:
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as config_file:
         for file in files:
             remote_url = urllib.parse.urljoin(
                 client_config.index_url,
@@ -666,8 +666,9 @@ def download_report_files(
             )
             local_path = output_dir / file.remote_path
             print(f'url = "{remote_url}"', file=config_file)
-            print(f'output = "{local_path}"', file=config_file)
-        config_file.flush()
+            print(f'output = "{local_path.as_posix()}"', file=config_file)
+        config_path = config_file.name
+    try:
         subprocess.run(
             [
                 "curl",
@@ -682,10 +683,12 @@ def download_report_files(
                 "--user",
                 f"{client_config.username}:{client_config.password}",
                 "--config",
-                config_file.name,
+                config_path,
             ],
             check=True,
         )
+    finally:
+        Path(config_path).unlink(missing_ok=True)
 
     for file in files:
         if file.remote_path == file.local_path:
