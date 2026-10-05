@@ -178,7 +178,11 @@ class TestCli(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = Path(tempfile.mkdtemp(prefix="cli-test-"))
         self.old_cwd = Path.cwd()
-        self.env_patch = mock.patch.dict(os.environ, {"HOME": str(self.tmpdir)}, clear=False)
+        self.env_patch = mock.patch.dict(
+            os.environ,
+            {"APPDATA": str(self.tmpdir), "HOME": str(self.tmpdir)},
+            clear=False,
+        )
         self.env_patch.start()
         self.client_env_names = ("NIGHTLIES_URL", "NIGHTLIES_USERNAME", "NIGHTLIES_PASSWORD")
         self.client_env = {name: os.environ.get(name) for name in self.client_env_names}
@@ -223,7 +227,9 @@ class TestCli(unittest.TestCase):
             lines = [line.strip() for line in config_path.read_text().splitlines() if line.strip()]
             for i in range(0, len(lines), 2):
                 url = lines[i].removeprefix('url = "').removesuffix('"')
-                output = Path(lines[i + 1].removeprefix('output = "').removesuffix('"'))
+                output_value = lines[i + 1].removeprefix('output = "').removesuffix('"')
+                self.assertNotIn("\\", output_value)
+                output = Path(output_value)
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_bytes(responses[url])
             return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
