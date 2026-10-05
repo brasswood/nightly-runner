@@ -263,6 +263,7 @@ class TestCli(unittest.TestCase):
         with (
             self.client_open_patch(opener),
             mock.patch.object(cli, "iter_entries", return_value=iter([entry])),
+            mock.patch.object(cli.sys, "platform", "win32"),
             mock.patch.object(cli.subprocess, "run", self.fake_curl_run({
                 report_url + "/index.html": b"<h1>ok</h1>\n",
                 report_url + "/nightly_info.json": json.dumps(manifest).encode("utf-8"),
@@ -276,7 +277,7 @@ class TestCli(unittest.TestCase):
             )
 
         self.assertEqual(rc, 0)
-        report_dir = self.tmpdir / report_name
+        report_dir = self.tmpdir / report_name.replace(":", "_")
         self.assertEqual((report_dir / "index.html").read_text(), "<h1>ok</h1>\n")
         self.assertEqual(json.loads((report_dir / "nightly_info.json").read_text())["files"][2]["path"], "results.json.gz")
         self.assertEqual((report_dir / "results.json").read_text(), "{\"ok\":true}\n")

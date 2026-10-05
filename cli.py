@@ -825,6 +825,8 @@ def cmd_download(client_config: ClientConfig, repo: str, selector: RunSelector) 
     report_url = fetch_published_report(client_config, repo, run_log.name)
     manifest = fetch_manifest(client_config, report_url)
     output_dir = Path(urllib.parse.urlsplit(report_url).path.rstrip("/")).name
+    if sys.platform == "win32":
+        output_dir = output_dir.replace(":", "_")
     file_count = download_report_files(report_url, manifest.files, Path(output_dir), client_config)
     print(f"Downloaded {file_count} files to {output_dir}/")
     return 0
