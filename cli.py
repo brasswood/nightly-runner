@@ -674,14 +674,12 @@ def cmd_sync(client_config: ClientConfig, wait: bool = False) -> int:
     try:
         client_config.post(SYNC_PATH, {})
     except urllib.error.HTTPError as exc:
-        if exc.code != 409:
-            raise
-        if not wait:
+        if exc.code == 409:
             raise CliError("Nightly sync already running") from exc
-        wait_for_sync(client_config, started=True)
-    else:
-        if wait:
-            wait_for_sync(client_config, started=False)
+        else:
+            raise
+    if wait:
+        wait_for_sync(client_config, started=False)
     return 0
 
 
