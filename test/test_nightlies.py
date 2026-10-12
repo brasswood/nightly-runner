@@ -2023,14 +2023,16 @@ class TestServerRunNow(unittest.TestCase):
                 },
             )]),
             "current": None,
+            "branches": [server.NightlyJob("42", "ruler", "main", "nightly.log")],
         }
 
         self.assertEqual(server.control_state(state), {
             "sync_disabled": False,
             "start_targets": [
-                {"repo": "testrepo", "branch": "main", "disabled": False},
-                {"repo": "testrepo", "branch": "feature", "disabled": True},
+                {"repo": "testrepo", "branch": "main", "disabled": False, "queued": False},
+                {"repo": "testrepo", "branch": "feature", "disabled": True, "queued": True},
             ],
+            "running_jobs": [{"repo": "ruler", "branch": "main", "log": "nightly.log"}],
         })
 
     def test_log_entries_lists_newest_logs_with_escaped_urls(self) -> None:

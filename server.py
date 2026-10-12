@@ -143,6 +143,7 @@ def load():
 def control_state(state: dict[str, object]) -> dict[str, object]:
     runner = cast(nightlies.NightlyRunner, state["runner"])
     current = state["current"]
+    jobs = cast(list[NightlyJob], state.get("branches", []))
     return {
         "sync_disabled": current is not None,
         "start_targets": [
@@ -150,9 +151,14 @@ def control_state(state: dict[str, object]) -> dict[str, object]:
                 "repo": repo.name,
                 "branch": branch.name,
                 "disabled": current is not None or "queued" in branch.badges,
+                "queued": "queued" in branch.badges,
             }
             for repo in runner.repos
             for branch in repo.branches.values()
+        ],
+        "running_jobs": [
+            {"repo": job.repo, "branch": job.branch, "log": job.log}
+            for job in jobs
         ],
     }
 
