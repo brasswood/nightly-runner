@@ -1061,6 +1061,7 @@ class TestCli(unittest.TestCase):
 
     def test_cmd_start_posts_server_repo_token(self) -> None:
         requests: list[urllib.request.Request] = []
+        job = cli.RunningJob("herbie", "feature/test", "run.log")
 
         class CapturingOpener:
             def open(self, request: object) -> FakeResponse:
@@ -1076,6 +1077,8 @@ class TestCli(unittest.TestCase):
                 "sync_disabled": False,
                 "start_targets": [target.__dict__ for target in state.start_targets],
             }),
+            mock.patch.object(cli, "wait_for_started_job", return_value=job) as started,
+            mock.patch.object(cli, "wait_for_job_completion") as completed,
         ):
             rc = cli.cmd_start(self.client_config(), "herbie", "feature/test")
 
@@ -1085,23 +1088,40 @@ class TestCli(unittest.TestCase):
         self.assertEqual(request.full_url, urllib.parse.urljoin(self.client_config().index_url, cli.START_PATH))
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.data, b"repo=herbie&branch=feature%2Ftest")
+        started.assert_called_once_with(self.client_config(), "herbie", "feature/test")
+        completed.assert_not_called()
 
-    def test_cmd_start_explains_when_sync_is_already_running(self) -> None:
+    def test_cmd_start_waits_for_sync_before_starting(self) -> None:
+        conflict = urllib.error.HTTPError(
+            cli.START_PATH, 409, "Conflict", hdrs=None,
+            fp=io.BytesIO(b"Nightly sync already running"),
+        )
+        job = cli.RunningJob("herbie", "main", "run.log")
         with (
             mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
                 "sync_disabled": True,
-                "start_targets": [{"repo": "herbie", "branch": "main", "disabled": False}],
+                "start_targets": [{"repo": "herbie", "branch": "main", "disabled": True}],
             }),
+            mock.patch.object(cli.ClientConfig, "post", side_effect=[conflict, None]) as post,
+            mock.patch.object(cli, "wait_for_sync") as sync,
+            mock.patch.object(cli, "wait_for_started_job", return_value=job) as started,
+            mock.patch.object(cli, "wait_for_job_completion") as completed,
         ):
-            with self.assertRaisesRegex(
-                cli.CliError,
-                r"^Nightly sync already running\. It should finish within a minute or two\.$",
-            ):
-                cli.cmd_start(self.client_config(), "herbie", "main")
+            rc = cli.cmd_start(self.client_config(), "herbie", "main")
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(post.call_count, 2)
+        sync.assert_called_once_with(self.client_config(), started=True)
+        started.assert_called_once_with(self.client_config(), "herbie", "main")
+        completed.assert_not_called()
 
     def test_cmd_start_wait_runs_full_wait_sequence(self) -> None:
         job = cli.RunningJob("herbie", "feature/test", "exact.log")
         with (
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
+                "sync_disabled": False,
+                "start_targets": [{"repo": "herbie", "branch": "feature/test", "disabled": False}],
+            }),
             mock.patch.object(cli.ClientConfig, "post") as post,
             mock.patch.object(cli, "wait_for_started_job", return_value=job) as started,
             mock.patch.object(cli, "wait_for_job_completion") as completed,
@@ -1115,24 +1135,10 @@ class TestCli(unittest.TestCase):
         completed.assert_called_once_with(self.client_config(), "herbie", "feature/test")
         successful.assert_called_once_with(self.client_config(), job)
 
-    def test_cmd_start_wait_for_start_stops_after_start(self) -> None:
-        job = cli.RunningJob("herbie", "feature/test", "exact.log")
-        with (
-            mock.patch.object(cli.ClientConfig, "post"),
-            mock.patch.object(cli, "wait_for_started_job", return_value=job),
-            mock.patch.object(cli, "wait_for_job_completion") as completed,
-            mock.patch.object(cli, "require_successful_job") as successful,
-        ):
-            rc = cli.cmd_start(self.client_config(), "herbie", "feature/test", wait_for_start=True)
-
-        self.assertEqual(rc, 0)
-        completed.assert_not_called()
-        successful.assert_not_called()
-
-    def test_start_wait_options_are_incompatible(self) -> None:
+    def test_start_parser_rejects_removed_wait_for_start_option(self) -> None:
         with mock.patch("sys.stderr", new_callable=io.StringIO):
             with self.assertRaises(SystemExit):
-                cli.build_parser().parse_args(["start", "--wait", "--wait-for-start"])
+                cli.build_parser().parse_args(["start", "--wait-for-start"])
 
     def test_cmd_start_wait_retries_after_sync(self) -> None:
         conflict = urllib.error.HTTPError(
@@ -1141,6 +1147,10 @@ class TestCli(unittest.TestCase):
         )
         job = cli.RunningJob("herbie", "main", "run.log")
         with (
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
+                "sync_disabled": False,
+                "start_targets": [{"repo": "herbie", "branch": "main", "disabled": False}],
+            }),
             mock.patch.object(cli.ClientConfig, "post", side_effect=[conflict, None]) as post,
             mock.patch.object(cli, "wait_for_sync") as sync,
             mock.patch.object(cli, "wait_for_started_job", return_value=job),
@@ -1160,6 +1170,10 @@ class TestCli(unittest.TestCase):
         )
         queued = cli.CliError("A previous run is still running")
         with (
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
+                "sync_disabled": False,
+                "start_targets": [{"repo": "herbie", "branch": "feature/test", "disabled": False}],
+            }),
             mock.patch.object(cli.ClientConfig, "post", side_effect=conflict),
             mock.patch.object(cli, "reject_queued_job", side_effect=queued) as reject,
         ):
