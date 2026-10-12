@@ -670,7 +670,10 @@ def cmd_sync(client_config: ClientConfig, wait: bool = False) -> int:
         else:
             raise
     if wait:
+        print("Waiting for sync to finish. This should take a minute or two...")
         wait_for_sync(client_config, started=False)
+    else:
+        print("Sync started. It should take a minute or two to finish.")
     return 0
 
 
