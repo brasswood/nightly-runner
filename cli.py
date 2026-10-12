@@ -662,16 +662,26 @@ def wait_for_sync(client_config: ClientConfig, started: bool) -> None:
 
 
 def cmd_sync(client_config: ClientConfig, wait: bool = False) -> int:
-    try:
-        client_config.post(SYNC_PATH, {})
-    except urllib.error.HTTPError as exc:
-        if exc.code == 409:
-            raise CliError("Nightly sync already running. It should finish within a minute or two.") from exc
-        else:
-            raise
+    last_sync_finished = False # Whether the last sync that ran before this command has finished
+    new_sync_started = False # Whether someone else started a new sync before we could try again; in this case, it's fine to join with it.
+    while True:
+        try:
+            client_config.post(SYNC_PATH, {})
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code != 409:
+                raise
+            if not wait:
+                raise CliError("Nightly sync already running. It should finish within a minute or two.") from exc
+            if last_sync_finished:
+                new_sync_started = True
+                break
+            print("Nightly sync already running. Waiting for it to finish before starting a new one. This should take a minute or two...")
+            wait_for_sync(client_config, started=True)
+            last_sync_finished = True
     if wait:
         print("Waiting for sync to finish. This should take a minute or two...")
-        wait_for_sync(client_config, started=False)
+        wait_for_sync(client_config, started=new_sync_started)
     else:
         print("Sync started. It should take a minute or two to finish.")
     return 0

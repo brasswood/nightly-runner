@@ -863,7 +863,7 @@ class TestCli(unittest.TestCase):
         post.assert_called_once_with(cli.SYNC_PATH, {})
         self.assertEqual(sleep.call_count, 3)
 
-    def test_cmd_sync_wait_rejects_running_sync(self) -> None:
+    def test_cmd_sync_waits_for_running_sync_then_starts_new_sync(self) -> None:
         conflict = urllib.error.HTTPError(
             cli.SYNC_PATH,
             409,
@@ -871,10 +871,15 @@ class TestCli(unittest.TestCase):
             hdrs=None,
             fp=io.BytesIO(b"Nightly sync already running"),
         )
+        states = iter([True, False, False, True, False])
 
         with (
-            mock.patch.object(cli.ClientConfig, "post", side_effect=conflict) as post,
-            mock.patch.object(cli.ClientConfig, "fetch_json") as fetch_json,
+            mock.patch.object(cli.ClientConfig, "post", side_effect=[conflict, None]) as post,
+            mock.patch.object(
+                cli.ClientConfig,
+                "fetch_json",
+                side_effect=lambda *_args: {"sync_disabled": next(states), "start_targets": []},
+            ) as fetch_json,
             mock.patch.object(cli.time, "sleep") as sleep,
         ):
             with self.assertRaisesRegex(
@@ -883,9 +888,8 @@ class TestCli(unittest.TestCase):
             ):
                 cli.cmd_sync(self.client_config(), wait=True)
 
-        post.assert_called_once_with(cli.SYNC_PATH, {})
-        fetch_json.assert_not_called()
-        sleep.assert_not_called()
+        self.assertEqual(rc, 0)
+        self.assertEqual((post.call_count, fetch_json.call_count, sleep.call_count), (2, 5, 3))
 
     def test_cmd_sync_reports_post_race_as_sync_running(self) -> None:
         conflict = urllib.error.HTTPError(
