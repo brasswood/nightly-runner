@@ -1184,6 +1184,11 @@ class TestCli(unittest.TestCase):
 
     def test_cmd_start_refuses_queued_branch(self) -> None:
         state = cli.IndexState(False, [cli.StartTarget("herbie", "feature/test", True)])
+        conflict = urllib.error.HTTPError(
+            cli.START_PATH, 409, "Conflict", hdrs=None,
+            fp=io.BytesIO(b"Job nightly:herbie:feature_2ftest already queued"),
+        )
+        queued = cli.CliError("Branch feature/test on herbie already queued")
 
         with (
             mock.patch.object(cli, "load_client_config", return_value=self.client_config()),
@@ -1192,6 +1197,8 @@ class TestCli(unittest.TestCase):
                 "sync_disabled": False,
                 "start_targets": [target.__dict__ for target in state.start_targets],
             }),
+            mock.patch.object(cli.ClientConfig, "post", side_effect=conflict),
+            mock.patch.object(cli, "reject_queued_job", side_effect=queued) as reject,
             mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
         ):
             rc = cli.main(["start", "feature/test"])
@@ -1201,6 +1208,7 @@ class TestCli(unittest.TestCase):
             stderr.getvalue(),
             "error: Branch feature/test on herbie already queued\n",
         )
+        reject.assert_called_once_with(self.client_config(), "herbie", "feature/test")
 
     def test_cmd_start_explains_that_sync_may_add_a_missing_branch(self) -> None:
         state = cli.IndexState(False, [cli.StartTarget("herbie", "main", False)])
@@ -1225,6 +1233,7 @@ class TestCli(unittest.TestCase):
 
     def test_main_start_without_branch_defaults_to_current_branch(self) -> None:
         requests: list[urllib.request.Request] = []
+        job = cli.RunningJob("herbie", "feature/test", "run.log")
 
         class CapturingOpener:
             def open(self, request: object) -> FakeResponse:
@@ -1243,12 +1252,14 @@ class TestCli(unittest.TestCase):
                 "sync_disabled": False,
                 "start_targets": [target.__dict__ for target in state.start_targets],
             }),
+            mock.patch.object(cli, "wait_for_started_job", return_value=job) as started,
         ):
             rc = cli.main(["start"])
 
         self.assertEqual(rc, 0)
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0].data, b"repo=herbie&branch=feature%2Ftest")
+        started.assert_called_once_with(self.client_config(), "herbie", "feature/test")
 
     def test_cmd_start_surfaces_http_error_message(self) -> None:
         client_config = self.client_config()
@@ -1258,10 +1269,10 @@ class TestCli(unittest.TestCase):
                 assert not isinstance(request, str)
                 raise urllib.error.HTTPError(
                     urllib.parse.urljoin(client_config.index_url, cli.START_PATH),
-                    409,
-                    "Conflict",
+                    404,
+                    "Not Found",
                     hdrs=None,
-                    fp=io.BytesIO(b"Nightly sync already running"),
+                    fp=io.BytesIO(b"Branch not available on nightly herbie"),
                 )
 
         state = cli.IndexState(False, [cli.StartTarget("herbie", "main", False)])
@@ -1279,7 +1290,7 @@ class TestCli(unittest.TestCase):
             rc = cli.main(["start", "main"])
 
         self.assertEqual(rc, 1)
-        self.assertEqual(stderr.getvalue(), "error: Nightly sync already running\n")
+        self.assertEqual(stderr.getvalue(), "error: HTTP 404: Branch not available on nightly herbie\n")
 
 
 class TestNightlyRunnerHarness(unittest.TestCase):
