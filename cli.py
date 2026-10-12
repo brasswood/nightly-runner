@@ -783,6 +783,7 @@ def cmd_start(
     job = wait_for_started_job(client_config, target.repo, target.branch)
     print("Nightly started.", end=None)
     if not wait:
+        print("")
         return 0
     print(" Waiting for completion...")
     wait_for_job_completion(client_config, target.repo, target.branch)
