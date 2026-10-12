@@ -34,8 +34,6 @@ REPORTS_PATH = "/reports/"
 SYNC_PATH = "/dryrun"
 START_PATH = "/runnow"
 SYNC_POLL_INTERVAL = 1.0
-SYNC_START_TIMEOUT = 10.0
-JOB_FINISH_TIMEOUT = 24 * 60 * 60.0
 
 
 class CliError(Exception):
@@ -457,14 +455,11 @@ def reject_queued_job(client_config: ClientConfig, repo: str, branch: str) -> No
 
 
 def wait_for_job_completion(client_config: ClientConfig, repo: str, branch: str) -> None:
-    deadline = time.monotonic() + JOB_FINISH_TIMEOUT
     while True:
         state = parse_control_state(client_config.fetch_json(API_PATH))
         target = resolve_start_target(state, repo, branch)
         if not target.disabled:
             return
-        if time.monotonic() >= deadline:
-            raise CliError(f"Branch {branch!r} on repo {repo!r} did not finish before timeout")
         time.sleep(SYNC_POLL_INTERVAL)
 
 
