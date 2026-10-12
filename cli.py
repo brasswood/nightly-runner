@@ -435,7 +435,6 @@ def wait_for_started_job(client_config: ClientConfig, repo: str, branch: str) ->
         jobs = parse_running_jobs(client_config.fetch(INDEX_PATH))
         for job in jobs:
             if job.repo == repo and job.branch == branch:
-                print(f"Started branch {branch!r} on repo {repo!r}")
                 return job
         time.sleep(SYNC_POLL_INTERVAL)
 
@@ -481,7 +480,6 @@ def require_successful_job(client_config: ClientConfig, job: RunningJob) -> None
         raise CliError(
             f"Branch {job.branch!r} on repo {job.repo!r} finished with status {manifest.status!r}"
         )
-    print(f"Branch {job.branch!r} on repo {job.repo!r} completed successfully")
 
 
 ## Logs
@@ -781,18 +779,24 @@ def cmd_start(
         except urllib.error.HTTPError as exc:
             message = format_http_error(exc)
             if message == "Nightly sync already running":
+                print("Waiting for nightly sync to finish, this should take one or two minutes...")
                 wait_for_sync(client_config, started=True)
                 continue
             if message.startswith("Job nightly:"):
                 reject_queued_job(client_config, repo, branch)
             raise CliError(message) from exc
+        print(f"Starting nightly on {repo!r} branch {branch!r}. This shouldn't take long...")
         break
 
     job = wait_for_started_job(client_config, repo, branch)
+    print("Nightly started.", end=None)
     if wait_for_start:
+        print("")
         return 0
+    print(" Waiting for completion...")
     wait_for_job_completion(client_config, repo, branch)
     require_successful_job(client_config, job)
+    print(f"{repo!r} branch {branch!r} completed successfully.")
     return 0
 
 
