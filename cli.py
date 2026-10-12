@@ -666,7 +666,7 @@ def cmd_sync(client_config: ClientConfig, wait: bool = False) -> int:
         client_config.post(SYNC_PATH, {})
     except urllib.error.HTTPError as exc:
         if exc.code == 409:
-            raise CliError("Nightly sync already running") from exc
+            raise CliError("Nightly sync already running. It should finish within a minute or two.") from exc
         else:
             raise
     if wait:
@@ -681,7 +681,7 @@ def cmd_start(client_config: ClientConfig, repo: str, branch: str) -> int:
     index_state = parse_control_state(client_config.fetch_json(API_PATH))
     target = resolve_start_target(index_state, repo, branch)
     if index_state.sync_disabled:
-        raise CliError("Nightly sync already running")
+        raise CliError("Nightly sync already running. It should finish within a minute or two.")
     if target.disabled:
         raise CliError(f"Branch {target.branch} on {target.repo} already queued")
     client_config.post(START_PATH, {"repo": target.repo, "branch": target.branch})
