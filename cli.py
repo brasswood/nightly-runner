@@ -777,7 +777,7 @@ def cmd_start(
             if message.startswith("Job nightly:"):
                 reject_queued_job(client_config, target.repo, target.branch)
             raise CliError(message) from exc
-        print(f"Starting nightly on {repo!r} branch {branch!r}. This shouldn't take long...")
+        print(f"Starting nightly on {target.repo!r} branch {target.branch!r}. This shouldn't take long...")
         break
 
     job = wait_for_started_job(client_config, target.repo, target.branch)
