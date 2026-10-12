@@ -898,9 +898,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     start_parser = subparsers.add_parser(
         "start",
-        help="Start a single repo branch run from the web UI, waiting until it starts.",
+        help="Start a single repo branch run from the web UI.",
     )
-    start_parser.add_argument("--wait", action="store_true", help="Also wait until the branch run finishes.")
+    start_parser.add_argument("--wait", action="store_true", help="Wait until the branch run finishes.")
     start_parser.add_argument("branch", nargs="?", default=None, help="Branch name.")
 
     log_parser = subparsers.add_parser("log", help="Print a log for a repo branch.")
