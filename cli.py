@@ -451,12 +451,40 @@ def parse_running_jobs(payload: str) -> list[RunningJob]:
     ]
 
 
-def wait_for_started_job(client_config: ClientConfig, repo: str, branch: str) -> RunningJob:
+def wait_for_started_job(
+    client_config: ClientConfig,
+    repo: str,
+    branch: str,
+    wait: bool = False,
+) -> RunningJob | None:
+    queue_message_printed = False
     while True:
-        jobs = parse_running_jobs(client_config.fetch(INDEX_PATH))
+        state = parse_control_state(client_config.fetch_json(API_PATH))
+        jobs = state.running_jobs
+        if jobs is None:
+            jobs = parse_running_jobs(client_config.fetch(INDEX_PATH))
         for job in jobs:
             if job.repo == repo and job.branch == branch:
                 return job
+
+        target_queued = any(
+            target.repo == repo and target.branch == branch and target.queued
+            for target in state.start_targets
+        )
+        other_jobs = [job for job in jobs if (job.repo, job.branch) != (repo, branch)]
+        if target_queued and other_jobs and not queue_message_printed:
+            job_word = "job" if len(other_jobs) == 1 else "jobs"
+            other_job_names = ", ".join(f"{job.repo!r} branch {job.branch!r}" for job in other_jobs)
+            pronoun = "it" if len(other_jobs) == 1 else "them"
+            waiting_message = f" Waiting for {pronoun} to complete." if wait else ""
+            print(
+                f"Your nightly for {repo!r} branch {branch!r} is queued behind "
+                f"{len(other_jobs)} other running nightly {job_word}: {other_job_names}."
+                f"{waiting_message}"
+            )
+            queue_message_printed = True
+            if not wait:
+                return None
         time.sleep(SYNC_POLL_INTERVAL)
 
 
@@ -798,15 +826,16 @@ def cmd_start(
             if message.startswith("Job nightly:"):
                 reject_queued_job(client_config, target.repo, target.branch)
             raise CliError(message) from exc
-        print(f"Starting nightly on {target.repo!r} branch {target.branch!r}. This shouldn't take long...")
+        print(f"Starting nightly on {target.repo!r} branch {target.branch!r}...")
         break
 
-    job = wait_for_started_job(client_config, target.repo, target.branch)
-    print("Nightly started.", end=None)
-    if not wait:
-        print("")
+    job = wait_for_started_job(client_config, target.repo, target.branch, wait=wait)
+    if job is None:
         return 0
-    print(" Waiting for completion...")
+    if not wait:
+        print(f"Nightly started for {target.repo!r} branch {target.branch!r}.")
+        return 0
+    print(f"Nightly started for {target.repo!r} branch {target.branch!r}; waiting for it to complete...")
     wait_for_job_completion(client_config, target.repo, target.branch)
     require_successful_job(client_config, job)
     print(f"{target.repo!r} branch {target.branch!r} completed successfully.")
