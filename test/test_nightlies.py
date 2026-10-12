@@ -891,6 +891,30 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual((post.call_count, fetch_json.call_count, sleep.call_count), (2, 5, 3))
 
+    def test_cmd_sync_wait_joins_sync_started_during_retry(self) -> None:
+        conflict = urllib.error.HTTPError(
+            cli.SYNC_PATH,
+            409,
+            "Conflict",
+            hdrs=None,
+            fp=io.BytesIO(b"Nightly sync already running"),
+        )
+        states = iter([True, False, True, False])
+
+        with (
+            mock.patch.object(cli.ClientConfig, "post", side_effect=[conflict, conflict]) as post,
+            mock.patch.object(
+                cli.ClientConfig,
+                "fetch_json",
+                side_effect=lambda *_args: {"sync_disabled": next(states), "start_targets": []},
+            ) as fetch_json,
+            mock.patch.object(cli.time, "sleep") as sleep,
+        ):
+            rc = cli.cmd_sync(self.client_config(), wait=True)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual((post.call_count, fetch_json.call_count, sleep.call_count), (2, 4, 2))
+
     def test_cmd_sync_reports_post_race_as_sync_running(self) -> None:
         conflict = urllib.error.HTTPError(
             cli.SYNC_PATH,
