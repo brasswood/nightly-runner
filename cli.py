@@ -433,21 +433,12 @@ def parse_running_jobs(payload: str) -> list[RunningJob]:
 
 
 def wait_for_started_job(client_config: ClientConfig, repo: str, branch: str) -> RunningJob:
-    deadline = time.monotonic() + SYNC_START_TIMEOUT
     while True:
         jobs = parse_running_jobs(client_config.fetch(INDEX_PATH))
         for job in jobs:
             if job.repo == repo and job.branch == branch:
                 print(f"Started branch {branch!r} on repo {repo!r}")
                 return job
-        if time.monotonic() >= deadline:
-            if jobs:
-                running = ", ".join(f"{job.branch!r} on repo {job.repo!r}" for job in jobs)
-                raise CliError(
-                    f"Branch {branch!r} on repo {repo!r} did not start before timeout; "
-                    f"other running branches must complete first: {running}"
-                )
-            raise CliError(f"Branch {branch!r} on repo {repo!r} was queued but did not start before timeout")
         time.sleep(SYNC_POLL_INTERVAL)
 
 
