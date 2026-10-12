@@ -825,6 +825,21 @@ class TestCli(unittest.TestCase):
                 cli.StartTarget("ruler", "feature/test", True),
             ],
         )
+        self.assertIsNone(state.running_jobs)
+
+    def test_parse_control_state_reads_queue_and_running_job_state(self) -> None:
+        state = cli.parse_control_state({
+            "sync_disabled": False,
+            "start_targets": [
+                {"repo": "herbie", "branch": "feature/test", "disabled": True, "queued": True},
+            ],
+            "running_jobs": [
+                {"repo": "ruler", "branch": "main", "log": "nightly.log"},
+            ],
+        })
+
+        self.assertEqual(state.start_targets, [cli.StartTarget("herbie", "feature/test", True, True)])
+        self.assertEqual(state.running_jobs, [cli.RunningJob("ruler", "main", "nightly.log")])
 
     def test_parse_running_jobs_reads_branch_status_rows(self) -> None:
         jobs = cli.parse_running_jobs("""

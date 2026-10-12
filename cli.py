@@ -159,6 +159,7 @@ class StartTarget:
     repo: str
     branch: str
     disabled: bool
+    queued: bool = False
 
 
 @dataclass(frozen=True)
@@ -172,7 +173,8 @@ class RunningJob:
 class IndexState:
     sync_disabled: bool
     start_targets: list[StartTarget]
-    
+    running_jobs: list[RunningJob] | None = None
+
 
 def parse_control_state(payload: dict[str, object]) -> IndexState:
     sync_disabled = payload.get("sync_disabled")
@@ -186,10 +188,29 @@ def parse_control_state(payload: dict[str, object]) -> IndexState:
         repo = target.get("repo")
         branch = target.get("branch")
         disabled = target.get("disabled")
-        if not isinstance(repo, str) or not isinstance(branch, str) or not isinstance(disabled, bool):
+        queued = target.get("queued", False)
+        if not isinstance(repo, str) or not isinstance(branch, str) or not isinstance(disabled, bool) \
+                or not isinstance(queued, bool):
             raise CliError("invalid control response")
-        start_targets.append(StartTarget(repo, branch, disabled))
-    return IndexState(sync_disabled, start_targets)
+        start_targets.append(StartTarget(repo, branch, disabled, queued))
+
+    running_jobs = None
+    if "running_jobs" in payload:
+        jobs = payload["running_jobs"]
+        if not isinstance(jobs, list):
+            raise CliError("invalid control response")
+        running_jobs = []
+        for job in jobs:
+            if not isinstance(job, dict):
+                raise CliError("invalid control response")
+            repo = job.get("repo")
+            branch = job.get("branch")
+            log = job.get("log")
+            if not isinstance(repo, str) or not isinstance(branch, str) or not isinstance(log, str):
+                raise CliError("invalid control response")
+            running_jobs.append(RunningJob(repo, branch, log))
+
+    return IndexState(sync_disabled, start_targets, running_jobs)
 
 
 def parse_log_entries(payload: dict[str, object]) -> list[str]:
