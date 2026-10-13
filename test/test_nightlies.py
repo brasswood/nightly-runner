@@ -864,26 +864,38 @@ class TestCli(unittest.TestCase):
             ],
         )
 
-    def test_wait_for_started_job_polls_past_start_timeout(self) -> None:
-        waiting = """
-            <tr><td><form action="/logs/main.log"></form>
-            <td>Running <kbd>main</kbd> on <kbd>ruler</kbd>
-        """
-        running = waiting + """
-            <tr><td><form action="/logs/run.log"></form>
-            <td>Running <kbd>feature/test</kbd> on <kbd>herbie</kbd>
-        """
+    def test_wait_for_started_job_reports_queue_then_waits_until_running(self) -> None:
+        waiting = {
+            "sync_disabled": False,
+            "start_targets": [{
+                "repo": "herbie", "branch": "feature/test", "disabled": True, "queued": True,
+            }],
+            "running_jobs": [{"repo": "ruler", "branch": "main", "log": "main.log"}],
+        }
+        running = {
+            "sync_disabled": False,
+            "start_targets": [{
+                "repo": "herbie", "branch": "feature/test", "disabled": True, "queued": True,
+            }],
+            "running_jobs": [
+                {"repo": "ruler", "branch": "main", "log": "main.log"},
+                {"repo": "herbie", "branch": "feature/test", "log": "run.log"},
+            ],
+        }
         with (
-            mock.patch.object(cli.ClientConfig, "fetch", side_effect=[waiting, running]),
-            mock.patch.object(cli.time, "monotonic", side_effect=[0, 11]),
+            mock.patch.object(cli.ClientConfig, "fetch_json", side_effect=[waiting, running]),
             mock.patch.object(cli.time, "sleep") as sleep,
             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
         ):
-            job = cli.wait_for_started_job(self.client_config(), "herbie", "feature/test")
+            job = cli.wait_for_started_job(self.client_config(), "herbie", "feature/test", wait=True)
 
         self.assertEqual(job, cli.RunningJob("herbie", "feature/test", "run.log"))
         sleep.assert_called_once_with(cli.SYNC_POLL_INTERVAL)
-        self.assertEqual(stdout.getvalue(), "Started branch 'feature/test' on repo 'herbie'\n")
+        self.assertEqual(
+            stdout.getvalue(),
+            "Your nightly for 'herbie' branch 'feature/test' is queued behind 1 other running nightly job: "
+            "'ruler' branch 'main'. Waiting for it to complete.\n",
+        )
 
     def test_reject_queued_job_reports_previous_matching_run(self) -> None:
         running = """
