@@ -9,6 +9,7 @@ import gzip
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -877,22 +878,43 @@ class TestCli(unittest.TestCase):
             mock.patch.object(cli.ClientConfig, "fetch") as fetch,
             self.assertRaises(urllib.error.HTTPError),
         ):
-            cli.fetch_report_commits(client, "mach-6")
+            cli.fetch_report_summaries(client, "mach-6")
         fetch.assert_not_called()
 
-    def test_highlight_history_styles_only_report_commits(self) -> None:
+    def test_highlight_history_marks_and_links_report_commits(self) -> None:
+        url = "https://nightly.cs.washington.edu/reports/mach-6/latest/"
         output = "* abcdef1 with report\n| * 1234567 without\n|/\n"
-        styled = "* \x1b[1;4mabcdef1\x1b[0m with report\n| * 1234567 without\n|/\n"
+        styled = (
+            "\x1b]8;;" + url + "\x1b\\\x1b[1;4m\x1b[32m+\x1b[39m "
+            "abcdef1 \x1b[32m(2)\x1b[39m with report\x1b[0m\x1b]8;;\x1b\\\n"
+            "| * 1234567 without\n|/\n"
+        )
 
-        self.assertEqual(cli.highlight_history(output, ["abcdef12"], True), styled)
+        reports = [cli.ReportSummary("abcdef12", 2, url)]
+        self.assertEqual(cli.highlight_history(output, reports, True), styled)
         self.assertEqual(
-            cli.highlight_history("* abcd short hash\n", ["abcdef12"], True),
-            "* \x1b[1;4mabcd\x1b[0m short hash\n",
+            cli.highlight_history("* abcd short hash\n", [cli.ReportSummary("abcdef12", 1, url)], False),
+            "+ abcd short hash\n",
         )
         colored = "\x1b[31m* \x1b[m\x1b[33mabcdef1\x1b[m with report\n"
-        colored_styled = "\x1b[31m* \x1b[m\x1b[33m\x1b[1;4mabcdef1\x1b[0m\x1b[m with report\n"
-        self.assertEqual(cli.highlight_history(colored, ["abcdef12"], True), colored_styled)
-        self.assertEqual(cli.highlight_history(output, ["abcdef12"], False), output)
+        colored_styled = cli.highlight_history(colored, reports, True)
+        visible = re.sub(r"\x1b\]8;;.*?\x1b\\", "", colored_styled)
+        visible = cli.ANSI_ESCAPE_RE.sub("", visible)
+        self.assertEqual(visible, "+ abcdef1 (2) with report\n")
+        self.assertIn("\x1b[m\x1b[1;4m", colored_styled)
+        self.assertIn("\x1b]8;;" + url + "\x1b\\", colored_styled)
+
+    def test_highlight_history_caps_displayed_report_count(self) -> None:
+        reports = [
+            cli.ReportSummary("aaaaaaa1", 2, "https://nightly.example/2/"),
+            cli.ReportSummary("bbbbbbb1", 9, "https://nightly.example/9/"),
+            cli.ReportSummary("ccccccc1", 10, "https://nightly.example/10/"),
+        ]
+        output = "* aaaaaaa two\n* bbbbbbb nine\n* ccccccc many\n"
+        self.assertEqual(
+            cli.highlight_history(output, reports, False),
+            "+ aaaaaaa (2) two\n+ bbbbbbb (9) nine\n+ ccccccc (9+) many\n",
+        )
 
     def test_validate_history_args_allows_walk_options_only(self) -> None:
         cli.validate_history_args([
