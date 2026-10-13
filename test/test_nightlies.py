@@ -895,7 +895,7 @@ class TestCli(unittest.TestCase):
         output = "* abcdef1 with report\n| * 1234567 without\n|/\n"
         styled = (
             "\x1b[1;32m+\x1b[0m \x1b]8;;" + url + "\x1b\\"
-            "\x1b[1;4mabcdef1 \x1b[32m(2)\x1b[39m with report\x1b[0m\x1b]8;;\x1b\\\n"
+            "\x1b[1;4mabcdef1 \x1b[32m[2]\x1b[39m with report\x1b[0m\x1b]8;;\x1b\\\n"
             "| * 1234567 without\n|/\n"
         )
 
@@ -909,13 +909,13 @@ class TestCli(unittest.TestCase):
         )
         self.assertEqual(
             cli.highlight_history("* abcdef1 (HEAD -> main) report\n", reports, False, graph=True),
-            "+ abcdef1 (2) (HEAD -> main) report\n",
+            "+ abcdef1 [2] (HEAD -> main) report\n",
         )
         colored = "\x1b[31m* \x1b[m\x1b[33mabcdef1\x1b[m with report\n"
         colored_styled = cli.highlight_history(colored, reports, True, graph=True)
         visible = re.sub(r"\x1b\]8;;.*?\x1b\\", "", colored_styled)
         visible = cli.ANSI_ESCAPE_RE.sub("", visible)
-        self.assertEqual(visible, "+ abcdef1 (2) with report\n")
+        self.assertEqual(visible, "+ abcdef1 [2] with report\n")
         self.assertIn("\x1b[m\x1b[1;4m", colored_styled)
         self.assertIn(
             "\x1b[1;32m+\x1b[0m \x1b[m\x1b[33m\x1b]8;;" + url
@@ -932,7 +932,7 @@ class TestCli(unittest.TestCase):
 
         visible = re.sub(r"\x1b\]8;;.*?\x1b\\", "", styled)
         visible = cli.ANSI_ESCAPE_RE.sub("", visible)
-        self.assertEqual(visible, "+ abcdef1 (2) (HEAD -> main) report\n  1234567 no report\n")
+        self.assertEqual(visible, "+ abcdef1 [2] (HEAD -> main) report\n  1234567 no report\n")
         self.assertIn(
             "\x1b[1;32m+\x1b[0m \x1b]8;;" + url + "\x1b\\\x1b[1;4mabcdef1",
             styled,
@@ -940,6 +940,12 @@ class TestCli(unittest.TestCase):
         self.assertEqual(
             cli.highlight_history("1234567 no report\n", [], False),
             "  1234567 no report\n",
+        )
+        self.assertEqual(
+            cli.highlight_history(
+                "abcdef1 (2) branch named 2\n", [cli.ReportSummary("abcdef12", 2, url)], False,
+            ),
+            "+ abcdef1 [2] (2) branch named 2\n",
         )
 
     def test_highlight_history_caps_displayed_report_count(self) -> None:
@@ -951,7 +957,7 @@ class TestCli(unittest.TestCase):
         output = "* aaaaaaa two\n* bbbbbbb nine\n* ccccccc many\n"
         self.assertEqual(
             cli.highlight_history(output, reports, False, graph=True),
-            "+ aaaaaaa (2) two\n+ bbbbbbb (9) nine\n+ ccccccc (9+) many\n",
+            "+ aaaaaaa [2] two\n+ bbbbbbb [9] nine\n+ ccccccc [9+] many\n",
         )
 
     def test_highlight_history_restores_ref_color_after_report_count(self) -> None:
@@ -1134,7 +1140,7 @@ class TestCli(unittest.TestCase):
         visible = cli.ANSI_ESCAPE_RE.sub("", visible)
         self.assertEqual(
             visible,
-            f"? {missing_commit} (3)\n\n  abcdef1 present history\n",
+            f"? {missing_commit} [3]\n\n  abcdef1 present history\n",
         )
 
     def test_log_url_is_derived_when_api_returns_names_only(self) -> None:

@@ -586,7 +586,7 @@ def highlight_history(
         commit_position = match.start("commit") + marker_visible_length + (1 if not graph else -1)
         commit_end = raw_history_position(line, match.end("commit"))
         if report.count > 1:
-            count = f"({report.count})" if report.count <= 9 else "(9+)"
+            count = f"[{report.count}]" if report.count <= 9 else "[9+]"
             count_text = f"\x1b[32m{count}\x1b[39m" if use_color else count
             if use_color:
                 count_text += history_sgr_state(line, commit_end)
