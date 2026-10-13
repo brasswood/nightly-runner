@@ -328,6 +328,31 @@ def fetch_report_summaries(client_config: ClientConfig, repo: str) -> list[Repor
     return parse_report_entries(payload, client_config, repo)
 
 
+def resolve_history_report_revisions(
+    report_summaries: list[ReportSummary],
+) -> tuple[list[str], list[ReportSummary]]:
+    if not report_summaries:
+        return [], []
+    result = subprocess.run(
+        ["git", "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+        input="".join(f"{report.commit}^{{commit}}\n" for report in report_summaries),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    checked = result.stdout.splitlines()
+    assert len(checked) == len(report_summaries)
+    revisions: list[str] = []
+    missing: list[ReportSummary] = []
+    for report, item in zip(report_summaries, checked):
+        object_name, _, object_type = item.rpartition(" ")
+        if object_type == "commit":
+            revisions.append(object_name)
+        else:
+            missing.append(report)
+    return revisions, missing
+
+
 @dataclass(frozen=True)
 class RunLog:
     name: str
