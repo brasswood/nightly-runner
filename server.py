@@ -190,13 +190,13 @@ def log_entries(
     return [{"name": run.name} for run in logs]
 
 
-def report_commits(reports_dir: Path, repo: str) -> list[str]:
+def report_entries(reports_dir: Path, repo: str) -> list[dict[str, str]]:
     if not repo or repo in {".", ".."} or "/" in repo or "\\" in repo:
         raise bottle.HTTPError(400, "repo must be a repository name")
     repo_dir = reports_dir / repo
     if not repo_dir.is_dir():
         return []
-    commits: set[str] = set()
+    reports: list[dict[str, str]] = []
     for report_dir in repo_dir.iterdir():
         if not report_dir.is_dir():
             continue
@@ -207,8 +207,8 @@ def report_commits(reports_dir: Path, repo: str) -> list[str]:
         else:
             commit = report_dir.name.rsplit(":", 1)[-1]
         if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{7,40}", commit):
-            commits.add(commit)
-    return sorted(commits)
+            reports.append({"commit": commit, "directory": report_dir.name})
+    return sorted(reports, key=lambda report: (report["commit"], report["directory"]))
 
 
 @bottle.route("/")
@@ -253,7 +253,11 @@ def api_reports():
     repo = bottle.request.query.get("repo")
     if repo is None:
         raise bottle.HTTPError(400, "repo is required")
-    return {"commits": report_commits(runner.report_dir, repo)}
+    reports = report_entries(runner.report_dir, repo)
+    return {
+        "commits": sorted({report["commit"] for report in reports}),
+        "reports": reports,
+    }
 
 @bottle.route("/docs")
 @bottle.view("docs.view")
