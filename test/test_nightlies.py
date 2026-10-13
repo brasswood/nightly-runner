@@ -2024,6 +2024,21 @@ class TestServerRunNow(unittest.TestCase):
 
         self.assertEqual(server.report_commits(reports_dir, "herbie"), ["a" * 40, "b" * 8])
 
+    def test_api_reports_returns_commit_ids_for_requested_repo(self) -> None:
+        server = self.import_server()
+        reports_dir = Path(tempfile.mkdtemp(prefix="server-api-reports-"))
+        self.addCleanup(shutil.rmtree, reports_dir)
+        (reports_dir / "herbie" / "1713570001:main:feedface").mkdir(parents=True)
+        runner = SimpleNamespace(report_dir=reports_dir, load=mock.Mock())
+        request = SimpleNamespace(query={"repo": "herbie"})
+
+        with (
+            mock.patch.object(server.nightlies, "NightlyRunner", return_value=runner),
+            mock.patch.object(server.bottle, "request", request),
+        ):
+            self.assertEqual(server.api_reports(), {"commits": ["feedface"]})
+        runner.load.assert_called_once_with()
+
     def make_runner(self, repo: str, branches: dict[str, Any]) -> tuple[Any, Any]:
         repo_state = SimpleNamespace(
             name=repo,

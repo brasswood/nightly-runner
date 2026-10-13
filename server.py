@@ -245,6 +245,16 @@ def api_logs():
         limit,
     )}
 
+
+@bottle.route("/api/reports")
+def api_reports():
+    runner = nightlies.NightlyRunner(CONF_FILE)
+    runner.load()
+    repo = bottle.request.query.get("repo")
+    if repo is None:
+        raise bottle.HTTPError(400, "repo is required")
+    return {"commits": report_commits(runner.report_dir, repo)}
+
 @bottle.route("/docs")
 @bottle.view("docs.view")
 def docs():
