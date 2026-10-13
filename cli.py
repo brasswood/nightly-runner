@@ -987,6 +987,33 @@ def cmd_log(client_config: ClientConfig, repo: str, selector: RunSelector, follo
     return 0
 
 
+def history_pager_command(stdout_isatty: bool) -> str | None:
+    if not stdout_isatty:
+        return None
+
+    command_config: str | None = None
+    configured = subprocess.run(["git", "config", "--get", "pager.log"], capture_output=True, text=True)
+    if configured.returncode == 0:
+        value = configured.stdout.rstrip("\n")
+        boolean = subprocess.run(
+            ["git", "config", "--bool", "--get", "pager.log"], capture_output=True, text=True,
+        )
+        if boolean.stdout.strip() == "false":
+            return None
+        if boolean.stdout.strip() != "true":
+            command_config = value
+
+    if "GIT_PAGER" in os.environ:
+        command = os.environ["GIT_PAGER"]
+    elif command_config is not None:
+        command = command_config
+    else:
+        command = subprocess.run(
+            ["git", "var", "GIT_PAGER"], capture_output=True, text=True, check=True,
+        ).stdout.rstrip("\n")
+    return None if command in {"", "cat"} else command
+
+
 def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str]) -> int:
     validate_history_args(git_args)
     reports = fetch_report_commits(client_config, repo)
@@ -996,7 +1023,16 @@ def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str]) -> 
         ["git", "log", "--graph", "--oneline", color_arg, *git_args],
         capture_output=True, text=True, check=True,
     )
-    sys.stdout.write(highlight_history(result.stdout, reports, use_color))
+    output = highlight_history(result.stdout, reports, use_color)
+    pager = history_pager_command(sys.stdout.isatty())
+    if pager is None:
+        sys.stdout.write(output)
+    else:
+        pager_env = os.environ.copy()
+        pager_env.setdefault("LESS", "FRX")
+        pager_env.setdefault("LV", "-c")
+        pager_env["GIT_PAGER_IN_USE"] = "true"
+        subprocess.run(pager, shell=True, input=output, text=True, env=pager_env, check=True)
     return 0
 
 
