@@ -1121,13 +1121,33 @@ def history_pager_command(paginate: bool | None, stdout_isatty: bool) -> str | N
     return None if command in {"", "cat"} else command
 
 
+def history_decoration_option(stdout_isatty: bool) -> str:
+    configured = subprocess.run(
+        ["git", "config", "--get", "log.decorate"], capture_output=True, text=True,
+    )
+    if configured.returncode == 1:
+        value = "auto"
+    else:
+        configured.check_returncode()
+        value = configured.stdout.strip().lower()
+
+    if value == "auto":
+        value = "short" if stdout_isatty else "no"
+    elif value in {"true", "yes", "on", "1"}:
+        value = "short"
+    elif value in {"false", "off", "0"}:
+        value = "no"
+    return f"--decorate={value}"
+
+
 def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str], paginate: bool | None = None) -> int:
     validate_history_args(git_args)
     reports = fetch_report_summaries(client_config, repo)
     use_color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
     color_arg = "--color=always" if use_color else "--color=never"
+    decoration_arg = history_decoration_option(sys.stdout.isatty())
     result = subprocess.run(
-        ["git", "log", "--graph", "--oneline", color_arg, *git_args],
+        ["git", "log", "--graph", "--oneline", color_arg, decoration_arg, *git_args],
         capture_output=True, text=True, check=True,
     )
     output = highlight_history(result.stdout, reports, use_color)
