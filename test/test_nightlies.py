@@ -799,14 +799,32 @@ class TestCli(unittest.TestCase):
 
         self.assertEqual(entries, ["2026-04-20-090832-1-herbie-main.log"])
 
-    def test_fetch_report_commits_validates_and_requests_repo(self) -> None:
+    def test_fetch_report_summaries_counts_reports_and_uses_latest_timestamp(self) -> None:
         client = self.client_config()
-        payload = {"commits": ["a" * 40, "feedface"]}
+        payload = {"reports": [
+            {"commit": "a" * 40, "directory": f"1713570003:feature:{'a' * 8}"},
+            {"commit": "a" * 8, "directory": f"1713570001:main:{'a' * 8}"},
+            {"commit": "a" * 40, "directory": f"1713570002:main:{'a' * 8}"},
+            {"commit": "feedface", "directory": "1713570002:main:feedface"},
+        ]}
         with mock.patch.object(cli.ClientConfig, "fetch_json", return_value=payload) as fetch:
-            self.assertEqual(cli.fetch_report_commits(client, "mach-6"), ["a" * 40, "feedface"])
+            self.assertEqual(cli.fetch_report_summaries(client, "mach-6"), [
+                cli.ReportSummary(
+                    "a" * 8,
+                    3,
+                    "https://nightly.cs.washington.edu/reports/mach-6/"
+                    "1713570003%3Afeature%3Aaaaaaaaa/",
+                ),
+                cli.ReportSummary(
+                    "feedface",
+                    1,
+                    "https://nightly.cs.washington.edu/reports/mach-6/"
+                    "1713570002%3Amain%3Afeedface/",
+                ),
+            ])
         fetch.assert_called_once_with("/api/reports?repo=mach-6")
         with self.assertRaisesRegex(cli.CliError, "invalid report response"):
-            cli.parse_report_commits({"commits": ["not-a-commit"]})
+            cli.parse_report_entries({"reports": [{"commit": "not-a-commit", "directory": "bad"}]}, client, "mach-6")
 
     def test_fetch_report_commits_falls_back_to_directory_index_on_404(self) -> None:
         client = self.client_config()
