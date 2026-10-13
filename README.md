@@ -14,9 +14,16 @@ uvx nightlies setup https://nightly.cs.washington.edu/
 uvx nightlies --help
 uvx nightlies list
 uvx nightlies log main
+uvx nightlies history --all
+uvx nightlies history origin/main..HEAD --first-parent
 uvx nightlies status main
 uvx nightlies download main
 ```
+
+`history` shows `git log --graph --oneline` output and bold-underlines commits
+with a published nightly report. It accepts Git revision, traversal, filtering,
+ordering, and path arguments; options that change or redirect the log output
+format are not accepted.
 
 Run these commands from a Git checkout for a nightly-enabled repository; the
 CLI infers the repo name from the GitHub remote. If you are somewhere else,
@@ -33,7 +40,7 @@ To install it persistently instead of using `uvx`:
 uv tool install nightlies
 ```
 
-Before you can use `list`, `log`, `status`, or `download`, run
+Before you can use `list`, `log`, `history`, `status`, or `download`, run
 `nightlies setup <url>`. The setup command prompts for a username and
 password, then saves the nightly URL and credentials in an OS-appropriate
 data directory so later commands can reuse them.
