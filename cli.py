@@ -460,7 +460,7 @@ def current_branch(cwd: str) -> str:
     return branch
 
 
-HISTORY_COMMIT_LINE_RE = re.compile(r"^[ |/*\\]*(?P<commit>[0-9a-f]{4,40}) ")
+HISTORY_COMMIT_LINE_RE = re.compile(r"^(?P<prefix>.*?)(?P<commit>[0-9a-f]{4,40}) ")
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
 OSC8_OPEN = "\x1b]8;;"
@@ -516,22 +516,37 @@ def style_history_suffix(suffix: str, latest_url: str) -> str:
     )
 
 
-def highlight_history(output: str, report_commits: list[str], use_color: bool) -> str:
-    if not use_color or not report_commits:
+def highlight_history(output: str, report_summaries: list[ReportSummary], use_color: bool) -> str:
+    if not report_summaries:
         return output
     lines: list[str] = []
     for line in output.splitlines(keepends=True):
         match = HISTORY_COMMIT_LINE_RE.match(ANSI_ESCAPE_RE.sub("", line))
-        if match and any(
-            report.startswith(match["commit"]) or match["commit"].startswith(report)
-            for report in report_commits
-        ):
-            start = line.find(match["commit"])
-            end = start + len(match["commit"])
-            line = (
-                line[:start] + "\x1b[1;4m" + line[start:end]
-                + "\x1b[0m" + line[end:]
-            )
+        if match is None:
+            lines.append(line)
+            continue
+        graph_node = match["prefix"].rfind("*")
+        if graph_node < 0:
+            lines.append(line)
+            continue
+        matching_reports = [
+            report for report in report_summaries
+            if report.commit.startswith(match["commit"]) or match["commit"].startswith(report.commit)
+        ]
+        if not matching_reports:
+            lines.append(line)
+            continue
+
+        report = max(matching_reports, key=lambda item: len(item.commit))
+        marker_position = raw_history_position(line, graph_node)
+        commit_end = raw_history_position(line, match.end("commit"))
+        if report.count > 1:
+            count = f"({report.count})" if report.count <= 9 else "(9+)"
+            count_text = f"\x1b[32m{count}\x1b[39m" if use_color else count
+            line = line[:commit_end] + " " + count_text + line[commit_end:]
+        line = line[:marker_position] + ("\x1b[32m+\x1b[39m" if use_color else "+") + line[marker_position + 1:]
+        if use_color:
+            line = line[:marker_position] + style_history_suffix(line[marker_position:], report.latest_url)
         lines.append(line)
     return "".join(lines)
 
@@ -1103,7 +1118,7 @@ def history_pager_command(paginate: bool | None, stdout_isatty: bool) -> str | N
 
 def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str], paginate: bool | None = None) -> int:
     validate_history_args(git_args)
-    reports = fetch_report_commits(client_config, repo)
+    reports = fetch_report_summaries(client_config, repo)
     use_color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
     color_arg = "--color=always" if use_color else "--color=never"
     result = subprocess.run(
