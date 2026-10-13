@@ -1035,6 +1035,44 @@ class TestCli(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
         self.assertEqual(run.call_args_list[2].kwargs["input"], "+ abcdef1 has report\n")
 
+    def test_cmd_history_formats_missing_reports_before_present_history(self) -> None:
+        client = self.client_config()
+        missing_commit = "12345678" + "9" * 32
+        missing_url = "https://nightly.example/reports/herbie/missing/latest/"
+        missing_report = cli.ReportSummary(missing_commit, 3, missing_url)
+        logged = subprocess.CompletedProcess(
+            ["git", "log"], 0, stdout="* abcdef1 present history\n", stderr="",
+        )
+
+        class TTYBuffer(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        stdout = TTYBuffer()
+        with (
+            mock.patch.object(cli, "fetch_report_summaries", return_value=[missing_report]),
+            mock.patch.object(cli, "resolve_history_report_revisions", return_value=([], [missing_report])),
+            mock.patch.object(cli, "history_decoration_option", return_value="--decorate=short"),
+            mock.patch.object(cli.subprocess, "run", return_value=logged),
+            mock.patch.object(cli, "history_pager_command", return_value=None),
+            mock.patch("sys.stdout", stdout),
+            mock.patch.dict(os.environ),
+        ):
+            os.environ.pop("NO_COLOR", None)
+            self.assertEqual(
+                cli.cmd_history(client, "herbie", ["--all"], paginate=False),
+                0,
+            )
+
+        self.assertIn(cli.OSC8_OPEN + missing_url + "\x1b\\", stdout.getvalue())
+        self.assertIn("\x1b[1;38;5;208m[missing]\x1b[0m", stdout.getvalue())
+        visible = re.sub(r"\x1b\]8;;.*?\x1b\\", "", stdout.getvalue())
+        visible = cli.ANSI_ESCAPE_RE.sub("", visible)
+        self.assertEqual(
+            visible,
+            f"[missing] {missing_commit} (3)\n\n* abcdef1 present history\n",
+        )
+
     def test_log_url_is_derived_when_api_returns_names_only(self) -> None:
         self.assertEqual(
             cli.log_url(self.client_config(), "run space.log"),
