@@ -1088,7 +1088,6 @@ class TestCli(unittest.TestCase):
 
     def test_cmd_start_posts_server_repo_token(self) -> None:
         requests: list[urllib.request.Request] = []
-        job = cli.RunningJob("herbie", "feature/test", "run.log")
 
         class CapturingOpener:
             def open(self, request: object) -> FakeResponse:
@@ -1096,16 +1095,27 @@ class TestCli(unittest.TestCase):
                 requests.append(cast(urllib.request.Request, request))
                 return FakeResponse(b"ok")
 
-        state = cli.IndexState(False, [cli.StartTarget("herbie", "feature/test", False)])
-
         with (
             self.client_open_patch(CapturingOpener()),
-            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={
-                "sync_disabled": False,
-                "start_targets": [target.__dict__ for target in state.start_targets],
-            }),
-            mock.patch.object(cli, "wait_for_started_job", return_value=job) as started,
+            mock.patch.object(cli.ClientConfig, "fetch_json", side_effect=[
+                {
+                    "sync_disabled": False,
+                    "start_targets": [{
+                        "repo": "herbie", "branch": "feature/test", "disabled": False, "queued": False,
+                    }],
+                    "running_jobs": [],
+                },
+                {
+                    "sync_disabled": False,
+                    "start_targets": [{
+                        "repo": "herbie", "branch": "feature/test", "disabled": True, "queued": True,
+                    }],
+                    "running_jobs": [{"repo": "ruler", "branch": "main", "log": "other.log"}],
+                },
+            ]),
+            mock.patch.object(cli.time, "sleep") as sleep,
             mock.patch.object(cli, "wait_for_job_completion") as completed,
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
         ):
             rc = cli.cmd_start(self.client_config(), "herbie", "feature/test")
 
@@ -1115,7 +1125,12 @@ class TestCli(unittest.TestCase):
         self.assertEqual(request.full_url, urllib.parse.urljoin(self.client_config().index_url, cli.START_PATH))
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.data, b"repo=herbie&branch=feature%2Ftest")
-        started.assert_called_once_with(self.client_config(), "herbie", "feature/test")
+        self.assertIn(
+            "Your nightly for 'herbie' branch 'feature/test' is queued behind 1 other running nightly job: "
+            "'ruler' branch 'main'.\n",
+            stdout.getvalue(),
+        )
+        sleep.assert_not_called()
         completed.assert_not_called()
 
     def test_cmd_start_waits_for_sync_before_starting(self) -> None:
@@ -1139,7 +1154,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(post.call_count, 2)
         sync.assert_called_once_with(self.client_config(), started=True)
-        started.assert_called_once_with(self.client_config(), "herbie", "main")
+        started.assert_called_once_with(self.client_config(), "herbie", "main", wait=False)
         completed.assert_not_called()
 
     def test_cmd_start_wait_runs_full_wait_sequence(self) -> None:
@@ -1153,14 +1168,19 @@ class TestCli(unittest.TestCase):
             mock.patch.object(cli, "wait_for_started_job", return_value=job) as started,
             mock.patch.object(cli, "wait_for_job_completion") as completed,
             mock.patch.object(cli, "require_successful_job") as successful,
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
         ):
             rc = cli.cmd_start(self.client_config(), "herbie", "feature/test", wait=True)
 
         self.assertEqual(rc, 0)
         post.assert_called_once_with(cli.START_PATH, {"repo": "herbie", "branch": "feature/test"})
-        started.assert_called_once_with(self.client_config(), "herbie", "feature/test")
+        started.assert_called_once_with(self.client_config(), "herbie", "feature/test", wait=True)
         completed.assert_called_once_with(self.client_config(), "herbie", "feature/test")
         successful.assert_called_once_with(self.client_config(), job)
+        self.assertIn(
+            "Nightly started for 'herbie' branch 'feature/test'; waiting for it to complete...\n",
+            stdout.getvalue(),
+        )
 
     def test_start_parser_rejects_removed_wait_for_start_option(self) -> None:
         with mock.patch("sys.stderr", new_callable=io.StringIO):
@@ -1180,7 +1200,7 @@ class TestCli(unittest.TestCase):
             }),
             mock.patch.object(cli.ClientConfig, "post", side_effect=[conflict, None]) as post,
             mock.patch.object(cli, "wait_for_sync") as sync,
-            mock.patch.object(cli, "wait_for_started_job", return_value=job),
+            mock.patch.object(cli, "wait_for_started_job", return_value=job) as started,
             mock.patch.object(cli, "wait_for_job_completion"),
             mock.patch.object(cli, "require_successful_job"),
         ):
@@ -1189,6 +1209,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(post.call_count, 2)
         sync.assert_called_once_with(self.client_config(), started=True)
+        started.assert_called_once_with(self.client_config(), "herbie", "main", wait=True)
 
     def test_cmd_start_wait_rejects_already_queued_branch(self) -> None:
         conflict = urllib.error.HTTPError(
@@ -1286,7 +1307,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0].data, b"repo=herbie&branch=feature%2Ftest")
-        started.assert_called_once_with(self.client_config(), "herbie", "feature/test")
+        started.assert_called_once_with(self.client_config(), "herbie", "feature/test", wait=False)
 
     def test_cmd_start_surfaces_http_error_message(self) -> None:
         client_config = self.client_config()
