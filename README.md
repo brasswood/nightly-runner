@@ -20,14 +20,16 @@ uvx nightlies status main
 uvx nightlies download main
 ```
 
-`history` shows `git log --graph --oneline` output and bold-underlines commits
-with a published nightly report. It accepts Git revision, traversal, filtering,
-ordering, and path arguments; options that change or redirect the log output
-format are not accepted.
+`history` shows `git log --graph --oneline` output. Commits with a published
+nightly report use a `+`; when color is enabled, the plus is green and the row
+is bold-underlined and linked to the latest report. When there are multiple
+reports, their count appears after the hash (capped at `9+`). It accepts Git
+revision, traversal, filtering, ordering, and path arguments; options that
+change or redirect the log output format are not accepted.
 Pager behavior follows Git's config and environment by default; use `--paginate`
 or `--no-pager` after `history` to override it.
-If `/api/reports` returns 404, it falls back to the published report directory
-listing.
+If `/api/reports` returns 404 or does not include report directories, it falls
+back to the published report directory listing.
 
 Run these commands from a Git checkout for a nightly-enabled repository; the
 CLI infers the repo name from the GitHub remote. If you are somewhere else,
