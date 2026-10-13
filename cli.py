@@ -955,6 +955,19 @@ def cmd_log(client_config: ClientConfig, repo: str, selector: RunSelector, follo
     return 0
 
 
+def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str]) -> int:
+    validate_history_args(git_args)
+    reports = fetch_report_commits(client_config, repo)
+    use_color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+    color_arg = "--color=always" if use_color else "--color=never"
+    result = subprocess.run(
+        ["git", "log", "--graph", "--oneline", color_arg, *git_args],
+        capture_output=True, text=True, check=True,
+    )
+    sys.stdout.write(highlight_history(result.stdout, reports, use_color))
+    return 0
+
+
 def cmd_status(client_config: ClientConfig, repo: str, selector: RunSelector) -> int:
     run_log = next(matching_run_logs(iter_entries(client_config, repo, selector), repo, selector), None)
     if run_log is None:

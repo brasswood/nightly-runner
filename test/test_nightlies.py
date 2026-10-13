@@ -808,6 +808,25 @@ class TestCli(unittest.TestCase):
             with self.subTest(args=args), self.assertRaises(cli.CliError):
                 cli.validate_history_args(list(args))
 
+    def test_cmd_history_forwards_git_walk_args(self) -> None:
+        client = self.client_config()
+        output = "* abcdef1 has report\n* 1234567 no report\n"
+        result = subprocess.CompletedProcess(["git", "log"], 0, stdout=output, stderr="")
+        with (
+            mock.patch.object(cli, "fetch_report_commits", return_value=["abcdef12"]),
+            mock.patch.object(cli.subprocess, "run", return_value=result) as run,
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+        ):
+            self.assertEqual(
+                cli.cmd_history(client, "herbie", ["--all", "HEAD~2..HEAD", "--first-parent"]),
+                0,
+            )
+        self.assertEqual(run.call_args.args[0], [
+            "git", "log", "--graph", "--oneline", "--color=never", "--all",
+            "HEAD~2..HEAD", "--first-parent",
+        ])
+        self.assertEqual(stdout.getvalue(), output)
+
     def test_log_url_is_derived_when_api_returns_names_only(self) -> None:
         self.assertEqual(
             cli.log_url(self.client_config(), "run space.log"),
