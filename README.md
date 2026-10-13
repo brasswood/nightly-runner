@@ -24,6 +24,8 @@ uvx nightlies download main
 with a published nightly report. It accepts Git revision, traversal, filtering,
 ordering, and path arguments; options that change or redirect the log output
 format are not accepted.
+Pager behavior follows Git's config and environment by default; use `--paginate`
+or `--no-pager` after `history` to override it.
 If `/api/reports` returns 404, it falls back to the published report directory
 listing.
 

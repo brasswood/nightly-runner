@@ -873,6 +873,44 @@ class TestCli(unittest.TestCase):
         ])
         self.assertEqual(stdout.getvalue(), output)
 
+    def test_history_pager_options_parse_after_subcommand(self) -> None:
+        cases = (
+            (["--paginate"], True),
+            (["--no-pager"], False),
+            (["--paginate", "--no-pager"], False),
+            (["--no-pager", "--paginate"], True),
+        )
+        for flags, expected in cases:
+            with self.subTest(flags=flags):
+                args, git_args = cli.build_parser().parse_known_args(["history", *flags, "--all"])
+                self.assertIs(args.paginate, expected)
+                self.assertEqual(git_args, ["--all"])
+
+    def test_history_pager_settings_and_environment_override(self) -> None:
+        with mock.patch.dict(os.environ, {
+            "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "pager.log",
+            "GIT_CONFIG_VALUE_0": "false", "GIT_PAGER": "configured-pager",
+        }):
+            self.assertIsNone(cli.history_pager_command(None, True))
+            self.assertEqual(cli.history_pager_command(True, True), "configured-pager")
+            self.assertIsNone(cli.history_pager_command(False, True))
+            self.assertIsNone(cli.history_pager_command(True, False))
+
+    def test_cmd_history_sends_output_to_selected_pager(self) -> None:
+        client = self.client_config()
+        output = "* abcdef1 has report\n"
+        git_result = subprocess.CompletedProcess(["git", "log"], 0, stdout=output, stderr="")
+        pager_result = subprocess.CompletedProcess(["test-pager"], 0, stdout="", stderr="")
+        with (
+            mock.patch.object(cli, "fetch_report_commits", return_value=["abcdef12"]),
+            mock.patch.object(cli, "history_pager_command", return_value="test-pager"),
+            mock.patch.object(cli.subprocess, "run", side_effect=[git_result, pager_result]) as run,
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+        ):
+            self.assertEqual(cli.cmd_history(client, "herbie", [], paginate=True), 0)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(run.call_args_list[1].kwargs["input"], output)
+
     def test_log_url_is_derived_when_api_returns_names_only(self) -> None:
         self.assertEqual(
             cli.log_url(self.client_config(), "run space.log"),
