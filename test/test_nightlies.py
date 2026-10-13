@@ -886,7 +886,7 @@ class TestCli(unittest.TestCase):
         output = "* abcdef1 with report\n| * 1234567 without\n|/\n"
         styled = (
             "\x1b[1;32m+\x1b[0m \x1b]8;;" + url + "\x1b\\"
-            "\x1b[1;4mabcdef1 \x1b[32m(2)\x1b[39m with report\x1b[0m\x1b]8;;\x1b\\\n"
+            "\x1b[1mabcdef1 \x1b[32m(2)\x1b[39m with report\x1b[0m\x1b]8;;\x1b\\\n"
             "| * 1234567 without\n|/\n"
         )
 
@@ -901,12 +901,13 @@ class TestCli(unittest.TestCase):
         visible = re.sub(r"\x1b\]8;;.*?\x1b\\", "", colored_styled)
         visible = cli.ANSI_ESCAPE_RE.sub("", visible)
         self.assertEqual(visible, "+ abcdef1 (2) with report\n")
-        self.assertIn("\x1b[m\x1b[1;4m", colored_styled)
+        self.assertIn("\x1b[m\x1b[1m", colored_styled)
         self.assertIn(
             "\x1b[1;32m+\x1b[0m \x1b[m\x1b[33m\x1b]8;;" + url
-            + "\x1b\\\x1b[1;4mabcdef1",
+            + "\x1b\\\x1b[1mabcdef1",
             colored_styled,
         )
+        self.assertNotRegex(colored_styled, r"\x1b\[[0-9;]*4m")
 
     def test_highlight_history_caps_displayed_report_count(self) -> None:
         reports = [

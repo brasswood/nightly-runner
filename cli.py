@@ -505,15 +505,15 @@ def style_history_suffix(suffix: str, commit_offset: int, latest_url: str) -> st
     elif suffix.endswith(("\n", "\r")):
         suffix, line_ending = suffix[:-1], suffix[-1]
 
-    def preserve_bold_underline(match: re.Match[str]) -> str:
+    def preserve_bold(match: re.Match[str]) -> str:
         reset = match.group(1) == "" or "0" in match.group(1).split(";")
-        return match.group(0) + ("\x1b[1;4m" if reset else "")
+        return match.group(0) + ("\x1b[1m" if reset else "")
 
     prefix, commit_and_message = suffix[:commit_offset], suffix[commit_offset:]
-    styled = ANSI_SGR_RE.sub(preserve_bold_underline, commit_and_message)
+    styled = ANSI_SGR_RE.sub(preserve_bold, commit_and_message)
     return (
         prefix + OSC8_OPEN + latest_url + "\x1b\\"
-        + "\x1b[1;4m" + styled + "\x1b[0m" + OSC8_CLOSE + line_ending
+        + "\x1b[1m" + styled + "\x1b[0m" + OSC8_CLOSE + line_ending
     )
 
 

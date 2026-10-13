@@ -22,7 +22,7 @@ uvx nightlies download main
 
 `history` shows `git log --graph --oneline` output. Commits with a published
 nightly report use a `+`; when color is enabled, the plus is bold green and the
-commit hash through the message is bold-underlined and linked to the latest
+commit hash through the message is bold and linked to the latest
 report. When there are multiple reports, their count appears after the hash
 (capped at `9+`). It accepts Git
 revision, traversal, filtering, ordering, and path arguments; options that
