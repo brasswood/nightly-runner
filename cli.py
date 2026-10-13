@@ -681,7 +681,7 @@ def cmd_sync(client_config: ClientConfig, wait: bool = False) -> int:
             continue
         break
     if wait:
-        print("Waiting for sync to finish. This should take a minute or two...")
+        print("Sync started. Waiting; this should take a minute or two...")
         wait_for_sync(client_config, started=new_sync_started)
     else:
         print("Sync started. It should take a minute or two to finish.")
