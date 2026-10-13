@@ -943,7 +943,7 @@ class TestCli(unittest.TestCase):
             "git", "log", "--graph", "--oneline", "--color=never", "--all",
             "HEAD~2..HEAD", "--first-parent",
         ])
-        self.assertEqual(stdout.getvalue(), output)
+        self.assertEqual(stdout.getvalue(), "+ abcdef1 has report\n* 1234567 no report\n")
 
     def test_history_pager_options_parse_after_subcommand(self) -> None:
         cases = (
