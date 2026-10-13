@@ -904,6 +904,10 @@ class TestCli(unittest.TestCase):
             cli.highlight_history("* abcd short hash\n", [cli.ReportSummary("abcdef12", 1, url)], False),
             "+ abcd short hash\n",
         )
+        self.assertEqual(
+            cli.highlight_history("* abcdef1 (HEAD -> main) report\n", reports, False),
+            "+ abcdef1 (2) (HEAD -> main) report\n",
+        )
         colored = "\x1b[31m* \x1b[m\x1b[33mabcdef1\x1b[m with report\n"
         colored_styled = cli.highlight_history(colored, reports, True)
         visible = re.sub(r"\x1b\]8;;.*?\x1b\\", "", colored_styled)
@@ -930,9 +934,13 @@ class TestCli(unittest.TestCase):
 
     def test_validate_history_args_allows_walk_options_only(self) -> None:
         cli.validate_history_args([
+            "--decorate", "--decorate=short", "--decorate=full", "--decorate=auto", "--no-decorate",
             "--all", "--first-parent", "--reverse", "HEAD~3..HEAD", "--", "src/main.py",
         ])
-        for args in (["--format=raw"], ["--output", "log.txt"], ["-p"], ["-L:main:file.py"]):
+        for args in (
+            ["--format=raw"], ["--output", "log.txt"], ["--decorate-refs=refs/heads/*"],
+            ["-p"], ["-L:main:file.py"],
+        ):
             with self.subTest(args=args), self.assertRaises(cli.CliError):
                 cli.validate_history_args(list(args))
 
@@ -959,16 +967,16 @@ class TestCli(unittest.TestCase):
                     client,
                     "herbie",
                     [
-                        "--all", "HEAD~2..HEAD", "--first-parent", "--not", "refs/heads/excluded",
-                        "--", "src/main.py",
+                        "--all", "HEAD~2..HEAD", "--first-parent", "--decorate=auto", "--decorate=full",
+                        "--not", "refs/heads/excluded", "--", "src/main.py",
                     ],
                 ),
                 0,
             )
         self.assertEqual(run.call_args.args[0], [
             "git", "log", "--graph", "--oneline", "--color=never", "--decorate=no", "--all",
-            "HEAD~2..HEAD", "--first-parent", report_commit, "--not", "refs/heads/excluded",
-            "--", "src/main.py",
+            "HEAD~2..HEAD", "--first-parent", "--decorate=no", "--decorate=full", report_commit,
+            "--not", "refs/heads/excluded", "--", "src/main.py",
         ])
         self.assertEqual(stdout.getvalue(), "+ abcdef1 has report\n* 1234567 no report\n")
 
@@ -1053,17 +1061,21 @@ class TestCli(unittest.TestCase):
             mock.patch.object(cli, "fetch_report_summaries", return_value=[missing_report]),
             mock.patch.object(cli, "resolve_history_report_revisions", return_value=([], [missing_report])),
             mock.patch.object(cli, "history_decoration_option", return_value="--decorate=short"),
-            mock.patch.object(cli.subprocess, "run", return_value=logged),
+            mock.patch.object(cli.subprocess, "run", return_value=logged) as run,
             mock.patch.object(cli, "history_pager_command", return_value=None),
             mock.patch("sys.stdout", stdout),
             mock.patch.dict(os.environ),
         ):
             os.environ.pop("NO_COLOR", None)
             self.assertEqual(
-                cli.cmd_history(client, "herbie", ["--all"], paginate=False),
+                cli.cmd_history(client, "herbie", ["--all", "--decorate=auto"], paginate=False),
                 0,
             )
 
+        self.assertEqual(run.call_args.args[0], [
+            "git", "log", "--graph", "--oneline", "--color=always", "--decorate=short",
+            "--all", "--decorate=short",
+        ])
         self.assertIn(cli.OSC8_OPEN + missing_url + "\x1b\\", stdout.getvalue())
         self.assertIn("\x1b[1;38;5;208m?\x1b[0m", stdout.getvalue())
         visible = re.sub(r"\x1b\]8;;.*?\x1b\\", "", stdout.getvalue())

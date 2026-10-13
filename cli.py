@@ -492,7 +492,7 @@ OSC8_OPEN = "\x1b]8;;"
 OSC8_CLOSE = "\x1b]8;;\x1b\\"
 HISTORY_FORMAT_OPTIONS = set("""
     --format --pretty --oneline --no-oneline --graph --no-graph --abbrev --no-abbrev
-    --abbrev-commit --no-abbrev-commit --decorate --no-decorate --decorate-refs
+    --abbrev-commit --no-abbrev-commit --decorate-refs
     --decorate-refs-exclude --clear-decorations --source --no-source --parents --children
     --left-right --boundary --cherry-mark --show-signature --log-size --notes --no-notes
     --encoding --date --color --no-color --output --line-prefix --show-linear-break
@@ -1187,10 +1187,17 @@ def history_decoration_option(stdout_isatty: bool) -> str:
 def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str], paginate: bool | None = None) -> int:
     validate_history_args(git_args)
     reports = fetch_report_summaries(client_config, repo)
-    use_color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+    stdout_isatty = sys.stdout.isatty()
+    use_color = stdout_isatty and "NO_COLOR" not in os.environ
     color_arg = "--color=always" if use_color else "--color=never"
-    decoration_arg = history_decoration_option(sys.stdout.isatty())
+    decoration_arg = history_decoration_option(stdout_isatty)
     separator_index = git_args.index("--") if "--" in git_args else len(git_args)
+    if "--decorate=auto" in git_args[:separator_index]:
+        auto_decoration = "--decorate=short" if stdout_isatty else "--decorate=no"
+        git_args = [
+            auto_decoration if argument == "--decorate=auto" else argument
+            for argument in git_args[:separator_index]
+        ] + git_args[separator_index:]
     missing_reports: list[ReportSummary] = []
     if "--all" in git_args[:separator_index]:
         revisions, missing_reports = resolve_history_report_revisions(reports)
@@ -1208,7 +1215,7 @@ def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str], pag
     if missing_reports and history_output:
         output += "\n"
     output += history_output
-    pager = history_pager_command(paginate, sys.stdout.isatty())
+    pager = history_pager_command(paginate, stdout_isatty)
     if pager is None:
         sys.stdout.write(output)
     else:
