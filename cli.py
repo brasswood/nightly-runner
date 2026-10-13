@@ -379,6 +379,20 @@ def current_branch(cwd: str) -> str:
 
 
 HISTORY_COMMIT_LINE_RE = re.compile(r"^[ |/*\\]*(?P<commit>[0-9a-f]{7,40}) ")
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+HISTORY_FORMAT_OPTIONS = set("""
+    --format --pretty --oneline --no-oneline --graph --no-graph --abbrev --no-abbrev
+    --abbrev-commit --no-abbrev-commit --decorate --no-decorate --decorate-refs
+    --decorate-refs-exclude --clear-decorations --source --no-source --parents --children
+    --left-right --boundary --cherry-mark --show-signature --log-size --notes --no-notes
+    --encoding --date --color --no-color --output --line-prefix --show-linear-break
+    --count --quiet --objects --objects-edge --disk-usage --unpacked --header --no-header
+    --patch --no-patch --raw --patch-with-raw --patch-with-stat --stat --numstat
+    --shortstat --dirstat --dirstat-by-file --name-only --name-status --summary
+    --compact-summary --check --binary --full-index --word-diff --word-diff-regex
+    --color-words --color-moved --color-moved-ws --diff-merges --no-diff-merges
+    --combined-all-paths --early-output --no-early-output -z -p -u -s -m -c -t
+""".split())
 
 
 def highlight_history(output: str, report_commits: list[str], use_color: bool) -> str:
@@ -386,18 +400,28 @@ def highlight_history(output: str, report_commits: list[str], use_color: bool) -
         return output
     lines: list[str] = []
     for line in output.splitlines(keepends=True):
-        match = HISTORY_COMMIT_LINE_RE.match(line)
+        match = HISTORY_COMMIT_LINE_RE.match(ANSI_ESCAPE_RE.sub("", line))
         if match and any(
             report.startswith(match["commit"]) or match["commit"].startswith(report)
             for report in report_commits
         ):
-            end = len(line.rstrip("\r\n"))
+            start = line.find(match["commit"])
+            end = start + len(match["commit"])
             line = (
-                line[:match.start("commit")] + "\x1b[1;4m"
-                + line[match.start("commit"):end] + "\x1b[0m" + line[end:]
+                line[:start] + "\x1b[1;4m" + line[start:end]
+                + "\x1b[0m" + line[end:]
             )
         lines.append(line)
     return "".join(lines)
+
+
+def validate_history_args(git_args: list[str]) -> None:
+    for argument in git_args:
+        if argument == "--":
+            return
+        option = argument.split("=", 1)[0]
+        if option in HISTORY_FORMAT_OPTIONS or argument.startswith(("-U", "-L")):
+            raise CliError(f"{argument} changes or redirects log output and is not supported")
 
 
 ## Run logs
