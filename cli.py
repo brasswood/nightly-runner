@@ -8,6 +8,7 @@ import datetime
 import getpass
 import gzip
 import html
+from html.parser import HTMLParser
 import itertools
 import json
 import os
@@ -241,9 +242,40 @@ def parse_report_commits(payload: dict[str, object]) -> list[str]:
     return parsed
 
 
+class ReportDirectoryParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "a":
+            self.hrefs.extend(value for name, value in attrs if name == "href" and value is not None)
+
+
+def parse_report_directory_index(index: str) -> list[str]:
+    parser = ReportDirectoryParser()
+    parser.feed(index)
+    commits: set[str] = set()
+    for href in parser.hrefs:
+        path = urllib.parse.urlsplit(href).path
+        if path.endswith("/"):
+            name = urllib.parse.unquote(path.rstrip("/").rsplit("/", 1)[-1])
+            commit = name.rsplit(":", 1)[-1]
+            if re.fullmatch(r"[0-9a-f]{7,40}", commit):
+                commits.add(commit)
+    return sorted(commits)
+
+
 def fetch_report_commits(client_config: ClientConfig, repo: str) -> list[str]:
     query = urllib.parse.urlencode({"repo": repo})
-    return parse_report_commits(client_config.fetch_json(API_REPORTS_PATH + "?" + query))
+    try:
+        payload = client_config.fetch_json(API_REPORTS_PATH + "?" + query)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+        index_path = REPORTS_PATH + urllib.parse.quote(repo, safe="") + "/"
+        return parse_report_directory_index(client_config.fetch(index_path))
+    return parse_report_commits(payload)
 
 
 @dataclass(frozen=True)
