@@ -1323,7 +1323,32 @@ def build_parser() -> argparse.ArgumentParser:
     log_parser.add_argument("-f", action="store_true", dest="follow", help="Follow the log until it completes.")
     add_run_selector_args(log_parser)
 
-    history_parser = subparsers.add_parser("history", help="Show Git history with nightly reports highlighted.")
+    history_parser = subparsers.add_parser(
+        "history",
+        help="Show Git history with nightly reports highlighted.",
+        description=(
+            "Show Git history with nightly reports highlighted.\n"
+            "Defaults to `git log --oneline` output."
+        ),
+        epilog="""\
+Git log options:
+  Revision ranges and pathspecs (after `--`), plus Git log traversal, filtering,
+  and ordering options are forwarded. For example: `--all`, `--first-parent`,
+  `--author`, `--since`, `--grep`, and `--reverse`. Graph output is off by
+  default; pass `--graph` to enable it or `--no-graph` to disable it. The
+  `--decorate`, `--no-decorate`, and `--decorate=short|full|auto|no` options
+  are supported. `--all` also includes commits with nightly reports that are
+  not reachable from local refs.
+
+Output-formatting and output-redirection options are not supported because
+history controls the output format. Examples include `--format`, `--pretty`,
+`--oneline` (provided automatically), `--date`, `--color`, `--line-prefix`,
+`--output`, `--decorate-refs`, `--clear-decorations`, `-p`, and `--stat`. `-L`
+and `-U` are also unsupported.
+
+Use `--paginate` or `-P, --no-pager` to control the pager.""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     history_parser.add_argument("--paginate", action="store_const", const=True, dest="paginate", help="Use Git's pager.")
     history_parser.add_argument("-P", "--no-pager", action="store_const", const=False, dest="paginate", help="Disable Git's pager.")
     history_parser.set_defaults(paginate=None)
