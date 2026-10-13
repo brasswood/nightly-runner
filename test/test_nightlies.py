@@ -882,11 +882,7 @@ class TestCli(unittest.TestCase):
             ) as fetch_json,
             mock.patch.object(cli.time, "sleep") as sleep,
         ):
-            with self.assertRaisesRegex(
-                cli.CliError,
-                r"^Nightly sync already running\. It should finish within a minute or two\.$",
-            ):
-                cli.cmd_sync(self.client_config(), wait=True)
+            rc = cli.cmd_sync(self.client_config(), wait=True)
 
         self.assertEqual(rc, 0)
         self.assertEqual((post.call_count, fetch_json.call_count, sleep.call_count), (2, 5, 3))
