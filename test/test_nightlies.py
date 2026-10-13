@@ -800,6 +800,14 @@ class TestCli(unittest.TestCase):
         self.assertEqual(cli.highlight_history(colored, ["abcdef12"], True), colored_styled)
         self.assertEqual(cli.highlight_history(output, ["abcdef12"], False), output)
 
+    def test_validate_history_args_allows_walk_options_only(self) -> None:
+        cli.validate_history_args([
+            "--all", "--first-parent", "--reverse", "HEAD~3..HEAD", "--", "src/main.py",
+        ])
+        for args in (["--format=raw"], ["--output", "log.txt"], ["-p"], ["-L:main:file.py"]):
+            with self.subTest(args=args), self.assertRaises(cli.CliError):
+                cli.validate_history_args(list(args))
+
     def test_log_url_is_derived_when_api_returns_names_only(self) -> None:
         self.assertEqual(
             cli.log_url(self.client_config(), "run space.log"),

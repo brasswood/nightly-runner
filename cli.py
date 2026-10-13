@@ -386,6 +386,9 @@ HISTORY_FORMAT_OPTIONS = set("""
     --decorate-refs-exclude --clear-decorations --source --no-source --parents --children
     --left-right --boundary --cherry-mark --show-signature --log-size --notes --no-notes
     --encoding --date --color --no-color --output --line-prefix --show-linear-break
+    --src-prefix --dst-prefix --no-prefix --stat-width --stat-name-width --stat-count
+    --stat-graph-width --output-indicator-new --output-indicator-old
+    --output-indicator-context
     --count --quiet --objects --objects-edge --disk-usage --unpacked --header --no-header
     --patch --no-patch --raw --patch-with-raw --patch-with-stat --stat --numstat
     --shortstat --dirstat --dirstat-by-file --name-only --name-status --summary
