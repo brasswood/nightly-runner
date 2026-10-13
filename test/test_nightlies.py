@@ -1034,6 +1034,21 @@ class TestCli(unittest.TestCase):
                 with mock.patch.object(cli.subprocess, "run", return_value=result):
                     self.assertEqual(cli.history_decoration_option(stdout_isatty), expected)
 
+    def test_history_help_documents_git_options(self) -> None:
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            with self.assertRaises(SystemExit) as raised:
+                cli.build_parser().parse_args(["history", "--help"])
+
+        self.assertEqual(raised.exception.code, 0)
+        help_text = stdout.getvalue()
+        for documented in (
+            "git log --oneline", "Revision ranges and pathspecs", "--first-parent", "--since",
+            "--graph", "--no-graph", "--decorate=short|full|auto|no", "--all", "--format",
+            "--output", "--decorate-refs", "-L", "--paginate",
+        ):
+            with self.subTest(documented=documented):
+                self.assertIn(documented, help_text)
+
     def test_history_pager_options_parse_after_subcommand(self) -> None:
         cases = (
             (["--paginate"], True),
