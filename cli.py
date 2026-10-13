@@ -1171,6 +1171,15 @@ def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str], pag
     use_color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
     color_arg = "--color=always" if use_color else "--color=never"
     decoration_arg = history_decoration_option(sys.stdout.isatty())
+    separator_index = git_args.index("--") if "--" in git_args else len(git_args)
+    missing_reports: list[ReportSummary] = []
+    if "--all" in git_args[:separator_index]:
+        revisions, missing_reports = resolve_history_report_revisions(reports)
+        revision_index = next(
+            (index for index, argument in enumerate(git_args[:separator_index]) if argument == "--not"),
+            separator_index,
+        )
+        git_args = [*git_args[:revision_index], *revisions, *git_args[revision_index:]]
     result = subprocess.run(
         ["git", "log", "--graph", "--oneline", color_arg, decoration_arg, *git_args],
         capture_output=True, text=True, check=True,

@@ -745,13 +745,20 @@ class TestCli(unittest.TestCase):
 
     def test_main_history_forwards_revision_and_all_options(self) -> None:
         result = subprocess.CompletedProcess(["git", "log"], 0, stdout="* abcdef1 report\n", stderr="")
+        report_commit = "abcdef12" + "0" * 32
+        checked_commit = subprocess.CompletedProcess(
+            ["git", "cat-file"], 0, stdout=f"{report_commit} commit\n", stderr="",
+        )
+        config_missing = subprocess.CompletedProcess(
+            ["git", "config", "--get", "log.decorate"], 1, stdout="", stderr="",
+        )
         with (
             mock.patch.object(cli, "load_client_config", return_value=self.client_config()),
             mock.patch.object(cli, "infer_repo", return_value="herbie"),
             mock.patch.object(cli, "fetch_report_summaries", return_value=[
                 cli.ReportSummary("abcdef12", 1, "https://nightly.cs.washington.edu/reports/herbie/latest/")
             ]),
-            mock.patch.object(cli.subprocess, "run", return_value=result) as run,
+            mock.patch.object(cli.subprocess, "run", side_effect=[config_missing, checked_commit, result]) as run,
             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
         ):
             rc = cli.main(["history", "--all", "main~2..main", "--first-parent"])
@@ -759,6 +766,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("--all", run.call_args.args[0])
         self.assertIn("main~2..main", run.call_args.args[0])
+        self.assertIn(report_commit, run.call_args.args[0])
         self.assertEqual(stdout.getvalue(), "+ abcdef1 report\n")
 
     def test_main_list_without_branch_does_not_default_to_current_branch(self) -> None:
@@ -932,6 +940,10 @@ class TestCli(unittest.TestCase):
         client = self.client_config()
         output = "* abcdef1 has report\n* 1234567 no report\n"
         result = subprocess.CompletedProcess(["git", "log"], 0, stdout=output, stderr="")
+        report_commit = "abcdef12" + "0" * 32
+        checked_commit = subprocess.CompletedProcess(
+            ["git", "cat-file"], 0, stdout=f"{report_commit} commit\n", stderr="",
+        )
         config_missing = subprocess.CompletedProcess(
             ["git", "config", "--get", "log.decorate"], 1, stdout="", stderr="",
         )
@@ -939,16 +951,24 @@ class TestCli(unittest.TestCase):
             mock.patch.object(cli, "fetch_report_summaries", return_value=[
                 cli.ReportSummary("abcdef12", 1, "https://nightly.example/latest/")
             ]),
-            mock.patch.object(cli.subprocess, "run", side_effect=[config_missing, result]) as run,
+            mock.patch.object(cli.subprocess, "run", side_effect=[config_missing, checked_commit, result]) as run,
             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
         ):
             self.assertEqual(
-                cli.cmd_history(client, "herbie", ["--all", "HEAD~2..HEAD", "--first-parent"]),
+                cli.cmd_history(
+                    client,
+                    "herbie",
+                    [
+                        "--all", "HEAD~2..HEAD", "--first-parent", "--not", "refs/heads/excluded",
+                        "--", "src/main.py",
+                    ],
+                ),
                 0,
             )
         self.assertEqual(run.call_args.args[0], [
             "git", "log", "--graph", "--oneline", "--color=never", "--decorate=no", "--all",
-            "HEAD~2..HEAD", "--first-parent",
+            "HEAD~2..HEAD", "--first-parent", report_commit, "--not", "refs/heads/excluded",
+            "--", "src/main.py",
         ])
         self.assertEqual(stdout.getvalue(), "+ abcdef1 has report\n* 1234567 no report\n")
 
