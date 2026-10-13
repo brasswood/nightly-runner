@@ -21,9 +21,10 @@ uvx nightlies download main
 ```
 
 `history` shows `git log --graph --oneline` output. Commits with a published
-nightly report use a `+`; when color is enabled, the plus is green and the row
-is bold-underlined and linked to the latest report. When there are multiple
-reports, their count appears after the hash (capped at `9+`). It accepts Git
+nightly report use a `+`; when color is enabled, the plus is bold green and the
+commit hash through the message is bold-underlined and linked to the latest
+report. When there are multiple reports, their count appears after the hash
+(capped at `9+`). It accepts Git
 revision, traversal, filtering, ordering, and path arguments; options that
 change or redirect the log output format are not accepted.
 Pager behavior follows Git's config and environment by default; use `--paginate`

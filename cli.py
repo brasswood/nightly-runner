@@ -512,7 +512,7 @@ def style_history_suffix(suffix: str, commit_offset: int, latest_url: str) -> st
     prefix, commit_and_message = suffix[:commit_offset], suffix[commit_offset:]
     styled = ANSI_SGR_RE.sub(preserve_bold_underline, commit_and_message)
     return (
-        OSC8_OPEN + latest_url + "\x1b\\" + prefix
+        prefix + OSC8_OPEN + latest_url + "\x1b\\"
         + "\x1b[1;4m" + styled + "\x1b[0m" + OSC8_CLOSE + line_ending
     )
 
