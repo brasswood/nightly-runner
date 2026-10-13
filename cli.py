@@ -592,7 +592,7 @@ def highlight_history(
 def missing_history_output(report_summaries: list[ReportSummary], use_color: bool) -> str:
     hash_start = "\x1b[33m" if use_color else ""
     hash_end = "\x1b[m" if use_color else ""
-    marker = "\x1b[1;38;5;208m[missing]\x1b[0m" if use_color else "[missing]"
+    marker = "\x1b[1;38;5;208m?\x1b[0m" if use_color else "?"
     output = "".join(
         f"* {hash_start}{report.commit}{hash_end}\n"
         for report in report_summaries

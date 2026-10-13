@@ -1065,12 +1065,12 @@ class TestCli(unittest.TestCase):
             )
 
         self.assertIn(cli.OSC8_OPEN + missing_url + "\x1b\\", stdout.getvalue())
-        self.assertIn("\x1b[1;38;5;208m[missing]\x1b[0m", stdout.getvalue())
+        self.assertIn("\x1b[1;38;5;208m?\x1b[0m", stdout.getvalue())
         visible = re.sub(r"\x1b\]8;;.*?\x1b\\", "", stdout.getvalue())
         visible = cli.ANSI_ESCAPE_RE.sub("", visible)
         self.assertEqual(
             visible,
-            f"[missing] {missing_commit} (3)\n\n* abcdef1 present history\n",
+            f"? {missing_commit} (3)\n\n* abcdef1 present history\n",
         )
 
     def test_log_url_is_derived_when_api_returns_names_only(self) -> None:
