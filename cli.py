@@ -1332,13 +1332,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog="""\
 Git log options:
-  Revision ranges and pathspecs (after `--`), plus Git log traversal, filtering,
-  and ordering options are forwarded. For example: `--all`, `--first-parent`,
-  `--author`, `--since`, `--grep`, and `--reverse`. Graph output is off by
-  default; pass `--graph` to enable it or `--no-graph` to disable it. The
-  `--decorate`, `--no-decorate`, and `--decorate=short|full|auto|no` options
-  are supported. `--all` also includes commits with nightly reports that are
-  not reachable from local refs.
+  Revision arguments and ranges can be given directly. Put pathspecs after `--`.
+  Git log traversal, filtering, and ordering options are forwarded, for example
+  `--all`, `--first-parent`, `--author`, `--since`, `--grep`, and `--reverse`.
+  Graph output is off by default. Pass `--graph` to enable it; `--no-graph`
+  disables it. The `--decorate`, `--no-decorate`, and
+  `--decorate=short|full|auto|no` options are supported. `--all` also includes
+  commits with nightly reports that are not reachable from local refs.
 
 Output-formatting and output-redirection options are not supported because
 history controls the output format. Examples include `--format`, `--pretty`,

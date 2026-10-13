@@ -1042,7 +1042,8 @@ class TestCli(unittest.TestCase):
         self.assertEqual(raised.exception.code, 0)
         help_text = stdout.getvalue()
         for documented in (
-            "git log --oneline", "Revision ranges and pathspecs", "--first-parent", "--since",
+            "git log --oneline", "Revision arguments and ranges can be given directly",
+            "Put pathspecs after `--`", "--first-parent", "--since",
             "--graph", "--no-graph", "--decorate=short|full|auto|no", "--all", "--format",
             "--output", "--decorate-refs", "-L", "--paginate",
         ):
