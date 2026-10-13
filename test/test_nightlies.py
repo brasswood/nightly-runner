@@ -2066,13 +2066,14 @@ class TestServerRunNow(unittest.TestCase):
             "runner": SimpleNamespace(repos=[SimpleNamespace(
                 name="testrepo",
                 branches={
-                    "main": SimpleNamespace(name="main", badges=["queued"]),
-                    "feature": SimpleNamespace(name="feature", badges=["queued"]),
+                    "main": SimpleNamespace(name="main", badges=[]),
+                    "feature/test": SimpleNamespace(name="feature/test", badges=["queued"]),
+                    "queued": SimpleNamespace(name="queued", badges=["queued"]),
                 },
             )]),
             "current": None,
             "branches": [
-                server.NightlyJob("41", "testrepo", "main", "running.log"),
+                server.NightlyJob("41", "testrepo", "feature_2ftest", "running.log"),
                 server.NightlyJob("42", "ruler", "main", "nightly.log"),
             ],
         }
@@ -2080,11 +2081,12 @@ class TestServerRunNow(unittest.TestCase):
         self.assertEqual(server.control_state(state), {
             "sync_disabled": False,
             "start_targets": [
-                {"repo": "testrepo", "branch": "main", "disabled": True, "queued": False},
-                {"repo": "testrepo", "branch": "feature", "disabled": True, "queued": True},
+                {"repo": "testrepo", "branch": "main", "disabled": False, "queued": False},
+                {"repo": "testrepo", "branch": "feature/test", "disabled": True, "queued": False},
+                {"repo": "testrepo", "branch": "queued", "disabled": True, "queued": True},
             ],
             "running_jobs": [
-                {"repo": "testrepo", "branch": "main", "log": "running.log"},
+                {"repo": "testrepo", "branch": "feature/test", "log": "running.log"},
                 {"repo": "ruler", "branch": "main", "log": "nightly.log"},
             ],
         })
