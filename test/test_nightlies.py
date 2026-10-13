@@ -747,7 +747,9 @@ class TestCli(unittest.TestCase):
         with (
             mock.patch.object(cli, "load_client_config", return_value=self.client_config()),
             mock.patch.object(cli, "infer_repo", return_value="herbie"),
-            mock.patch.object(cli, "fetch_report_commits", return_value=["abcdef12"]),
+            mock.patch.object(cli, "fetch_report_summaries", return_value=[
+                cli.ReportSummary("abcdef12", 1, "https://nightly.cs.washington.edu/reports/herbie/latest/")
+            ]),
             mock.patch.object(cli.subprocess, "run", return_value=result) as run,
             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
         ):
@@ -756,7 +758,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("--all", run.call_args.args[0])
         self.assertIn("main~2..main", run.call_args.args[0])
-        self.assertEqual(stdout.getvalue(), "* abcdef1 report\n")
+        self.assertEqual(stdout.getvalue(), "+ abcdef1 report\n")
 
     def test_main_list_without_branch_does_not_default_to_current_branch(self) -> None:
         entries = [
@@ -859,7 +861,9 @@ class TestCli(unittest.TestCase):
         output = "* abcdef1 has report\n* 1234567 no report\n"
         result = subprocess.CompletedProcess(["git", "log"], 0, stdout=output, stderr="")
         with (
-            mock.patch.object(cli, "fetch_report_commits", return_value=["abcdef12"]),
+            mock.patch.object(cli, "fetch_report_summaries", return_value=[
+                cli.ReportSummary("abcdef12", 1, "https://nightly.example/latest/")
+            ]),
             mock.patch.object(cli.subprocess, "run", return_value=result) as run,
             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
         ):
@@ -902,14 +906,16 @@ class TestCli(unittest.TestCase):
         git_result = subprocess.CompletedProcess(["git", "log"], 0, stdout=output, stderr="")
         pager_result = subprocess.CompletedProcess(["test-pager"], 0, stdout="", stderr="")
         with (
-            mock.patch.object(cli, "fetch_report_commits", return_value=["abcdef12"]),
+            mock.patch.object(cli, "fetch_report_summaries", return_value=[
+                cli.ReportSummary("abcdef12", 1, "https://nightly.example/latest/")
+            ]),
             mock.patch.object(cli, "history_pager_command", return_value="test-pager"),
             mock.patch.object(cli.subprocess, "run", side_effect=[git_result, pager_result]) as run,
             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
         ):
             self.assertEqual(cli.cmd_history(client, "herbie", [], paginate=True), 0)
         self.assertEqual(stdout.getvalue(), "")
-        self.assertEqual(run.call_args_list[1].kwargs["input"], output)
+        self.assertEqual(run.call_args_list[1].kwargs["input"], "+ abcdef1 has report\n")
 
     def test_log_url_is_derived_when_api_returns_names_only(self) -> None:
         self.assertEqual(
