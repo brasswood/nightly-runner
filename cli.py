@@ -300,30 +300,32 @@ class ReportDirectoryParser(HTMLParser):
             self.hrefs.extend(value for name, value in attrs if name == "href" and value is not None)
 
 
-def parse_report_directory_index(index: str) -> list[str]:
+def parse_report_directory_index(index: str, client_config: ClientConfig, repo: str) -> list[ReportSummary]:
     parser = ReportDirectoryParser()
     parser.feed(index)
-    commits: set[str] = set()
+    entries: list[tuple[str, str]] = []
     for href in parser.hrefs:
         path = urllib.parse.urlsplit(href).path
         if path.endswith("/"):
             name = urllib.parse.unquote(path.rstrip("/").rsplit("/", 1)[-1])
-            commit = name.rsplit(":", 1)[-1]
-            if re.fullmatch(r"[0-9a-f]{7,40}", commit):
-                commits.add(commit)
-    return sorted(commits)
+            match = REPORT_DIRECTORY_RE.fullmatch(name)
+            if match:
+                entries.append((match["commit"], name))
+    return summarize_report_entries(entries, client_config, repo)
 
 
-def fetch_report_commits(client_config: ClientConfig, repo: str) -> list[str]:
+def fetch_report_summaries(client_config: ClientConfig, repo: str) -> list[ReportSummary]:
     query = urllib.parse.urlencode({"repo": repo})
+    index_path = REPORTS_PATH + urllib.parse.quote(repo, safe="") + "/"
     try:
         payload = client_config.fetch_json(API_REPORTS_PATH + "?" + query)
     except urllib.error.HTTPError as exc:
         if exc.code != 404:
             raise
-        index_path = REPORTS_PATH + urllib.parse.quote(repo, safe="") + "/"
-        return parse_report_directory_index(client_config.fetch(index_path))
-    return parse_report_commits(payload)
+        return parse_report_directory_index(client_config.fetch(index_path), client_config, repo)
+    if "reports" not in payload:
+        return parse_report_directory_index(client_config.fetch(index_path), client_config, repo)
+    return parse_report_entries(payload, client_config, repo)
 
 
 @dataclass(frozen=True)
