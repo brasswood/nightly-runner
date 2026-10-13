@@ -491,7 +491,7 @@ ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
 OSC8_OPEN = "\x1b]8;;"
 OSC8_CLOSE = "\x1b]8;;\x1b\\"
 HISTORY_FORMAT_OPTIONS = set("""
-    --format --pretty --oneline --no-oneline --graph --no-graph --abbrev --no-abbrev
+    --format --pretty --oneline --no-oneline --abbrev --no-abbrev
     --abbrev-commit --no-abbrev-commit --decorate-refs
     --decorate-refs-exclude --clear-decorations --source --no-source --parents --children
     --left-right --boundary --cherry-mark --show-signature --log-size --notes --no-notes
@@ -547,6 +547,7 @@ def highlight_history(
     report_summaries: list[ReportSummary],
     use_color: bool,
     marker: str | None = None,
+    graph: bool = False,
 ) -> str:
     if not report_summaries:
         return output
@@ -559,8 +560,8 @@ def highlight_history(
         if match is None:
             lines.append(line)
             continue
-        graph_node = match["prefix"].rfind("*")
-        if graph_node < 0:
+        graph_node = match["prefix"].rfind("*") if graph else -1
+        if graph and graph_node < 0:
             lines.append(line)
             continue
         matching_reports = [
@@ -572,15 +573,18 @@ def highlight_history(
             continue
 
         report = max(matching_reports, key=lambda item: len(item.commit))
-        marker_position = raw_history_position(line, graph_node)
+        marker_position = raw_history_position(line, graph_node) if graph else 0
+        commit_position = match.start("commit") + marker_visible_length + (1 if not graph else -1)
         commit_end = raw_history_position(line, match.end("commit"))
         if report.count > 1:
             count = f"({report.count})" if report.count <= 9 else "(9+)"
             count_text = f"\x1b[32m{count}\x1b[39m" if use_color else count
             line = line[:commit_end] + " " + count_text + line[commit_end:]
-        line = line[:marker_position] + marker + line[marker_position + 1:]
+        if graph:
+            line = line[:marker_position] + marker + line[marker_position + 1:]
+        else:
+            line = marker + " " + line
         if use_color:
-            commit_position = match.start("commit") + marker_visible_length - 1
             commit_start = raw_history_position(line, commit_position)
             line = line[:marker_position] + style_history_suffix(
                 line[marker_position:], commit_start - marker_position, report.latest_url,
@@ -589,15 +593,16 @@ def highlight_history(
     return "".join(lines)
 
 
-def missing_history_output(report_summaries: list[ReportSummary], use_color: bool) -> str:
+def missing_history_output(report_summaries: list[ReportSummary], use_color: bool, graph: bool) -> str:
     hash_start = "\x1b[33m" if use_color else ""
     hash_end = "\x1b[m" if use_color else ""
     marker = "\x1b[1;38;5;208m?\x1b[0m" if use_color else "?"
+    graph_prefix = "* " if graph else ""
     output = "".join(
-        f"* {hash_start}{report.commit}{hash_end}\n"
+        f"{graph_prefix}{hash_start}{report.commit}{hash_end}\n"
         for report in report_summaries
     )
-    return highlight_history(output, report_summaries, use_color, marker)
+    return highlight_history(output, report_summaries, use_color, marker, graph)
 
 
 def validate_history_args(git_args: list[str]) -> None:
@@ -1192,6 +1197,12 @@ def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str], pag
     color_arg = "--color=always" if use_color else "--color=never"
     decoration_arg = history_decoration_option(stdout_isatty)
     separator_index = git_args.index("--") if "--" in git_args else len(git_args)
+    graph = False
+    for argument in git_args[:separator_index]:
+        if argument == "--graph":
+            graph = True
+        elif argument == "--no-graph":
+            graph = False
     if "--decorate=auto" in git_args[:separator_index]:
         auto_decoration = "--decorate=short" if stdout_isatty else "--decorate=no"
         git_args = [
@@ -1207,11 +1218,11 @@ def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str], pag
         )
         git_args = [*git_args[:revision_index], *revisions, *git_args[revision_index:]]
     result = subprocess.run(
-        ["git", "log", "--graph", "--oneline", color_arg, decoration_arg, *git_args],
+        ["git", "log", "--oneline", color_arg, decoration_arg, *git_args],
         capture_output=True, text=True, check=True,
     )
-    output = missing_history_output(missing_reports, use_color)
-    history_output = highlight_history(result.stdout, reports, use_color)
+    output = missing_history_output(missing_reports, use_color, graph)
+    history_output = highlight_history(result.stdout, reports, use_color, graph=graph)
     if missing_reports and history_output:
         output += "\n"
     output += history_output
