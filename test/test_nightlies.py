@@ -932,10 +932,14 @@ class TestCli(unittest.TestCase):
 
         visible = re.sub(r"\x1b\]8;;.*?\x1b\\", "", styled)
         visible = cli.ANSI_ESCAPE_RE.sub("", visible)
-        self.assertEqual(visible, "+ abcdef1 (2) (HEAD -> main) report\n1234567 no report\n")
+        self.assertEqual(visible, "+ abcdef1 (2) (HEAD -> main) report\n  1234567 no report\n")
         self.assertIn(
             "\x1b[1;32m+\x1b[0m \x1b]8;;" + url + "\x1b\\\x1b[1;4mabcdef1",
             styled,
+        )
+        self.assertEqual(
+            cli.highlight_history("1234567 no report\n", [], False),
+            "  1234567 no report\n",
         )
 
     def test_highlight_history_caps_displayed_report_count(self) -> None:
@@ -997,7 +1001,7 @@ class TestCli(unittest.TestCase):
             "HEAD~2..HEAD", "--first-parent", "--decorate=no", "--decorate=full", report_commit,
             "--not", "refs/heads/excluded", "--", "src/main.py",
         ])
-        self.assertEqual(stdout.getvalue(), "+ abcdef1 has report\n1234567 no report\n")
+        self.assertEqual(stdout.getvalue(), "+ abcdef1 has report\n  1234567 no report\n")
 
     def test_history_decoration_option_respects_tty_and_git_config(self) -> None:
         cases = (
@@ -1103,7 +1107,7 @@ class TestCli(unittest.TestCase):
         visible = cli.ANSI_ESCAPE_RE.sub("", visible)
         self.assertEqual(
             visible,
-            f"? {missing_commit} (3)\n\nabcdef1 present history\n",
+            f"? {missing_commit} (3)\n\n  abcdef1 present history\n",
         )
 
     def test_log_url_is_derived_when_api_returns_names_only(self) -> None:

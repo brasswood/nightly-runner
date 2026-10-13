@@ -549,8 +549,6 @@ def highlight_history(
     marker: str | None = None,
     graph: bool = False,
 ) -> str:
-    if not report_summaries:
-        return output
     if marker is None:
         marker = "\x1b[1;32m+\x1b[0m" if use_color else "+"
     marker_visible_length = len(ANSI_ESCAPE_RE.sub("", marker))
@@ -569,7 +567,7 @@ def highlight_history(
             if report.commit.startswith(match["commit"]) or match["commit"].startswith(report.commit)
         ]
         if not matching_reports:
-            lines.append(line)
+            lines.append(("  " + line) if not graph else line)
             continue
 
         report = max(matching_reports, key=lambda item: len(item.commit))
