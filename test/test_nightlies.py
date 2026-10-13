@@ -806,6 +806,32 @@ class TestCli(unittest.TestCase):
         with self.assertRaisesRegex(cli.CliError, "invalid report response"):
             cli.parse_report_commits({"commits": ["not-a-commit"]})
 
+    def test_fetch_report_commits_falls_back_to_directory_index_on_404(self) -> None:
+        client = self.client_config()
+        not_found = urllib.error.HTTPError("/api/reports", 404, "Not Found", hdrs=None, fp=None)
+        listing = (
+            '<a href="../">../</a>'
+            '<a href="1%3Amain%3Aabcdef12/">main</a>'
+            '<a href="2%3Afeature%2Ftest%3A12345678/">feature</a>'
+            '<a href="3%3Amain%3Aabcdef12/">duplicate</a>'
+            '<a href="nightly_info.json">file</a>'
+        )
+        with (
+            mock.patch.object(cli.ClientConfig, "fetch_json", side_effect=not_found),
+            mock.patch.object(cli.ClientConfig, "fetch", return_value=listing) as fetch,
+        ):
+            self.assertEqual(cli.fetch_report_commits(client, "mach-6"), ["12345678", "abcdef12"])
+        fetch.assert_called_once_with("/reports/mach-6/")
+
+        server_error = urllib.error.HTTPError("/api/reports", 500, "Internal Server Error", hdrs=None, fp=None)
+        with (
+            mock.patch.object(cli.ClientConfig, "fetch_json", side_effect=server_error),
+            mock.patch.object(cli.ClientConfig, "fetch") as fetch,
+            self.assertRaises(urllib.error.HTTPError),
+        ):
+            cli.fetch_report_commits(client, "mach-6")
+        fetch.assert_not_called()
+
     def test_highlight_history_styles_only_report_commits(self) -> None:
         output = "* abcdef1 with report\n| * 1234567 without\n|/\n"
         styled = "* \x1b[1;4mabcdef1\x1b[0m with report\n| * 1234567 without\n|/\n"

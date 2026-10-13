@@ -24,6 +24,8 @@ uvx nightlies download main
 with a published nightly report. It accepts Git revision, traversal, filtering,
 ordering, and path arguments; options that change or redirect the log output
 format are not accepted.
+If `/api/reports` returns 404, it falls back to the published report directory
+listing.
 
 Run these commands from a Git checkout for a nightly-enabled repository; the
 CLI infers the repo name from the GitHub remote. If you are somewhere else,
