@@ -462,6 +462,9 @@ def current_branch(cwd: str) -> str:
 
 HISTORY_COMMIT_LINE_RE = re.compile(r"^[ |/*\\]*(?P<commit>[0-9a-f]{4,40}) ")
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
+OSC8_OPEN = "\x1b]8;;"
+OSC8_CLOSE = "\x1b]8;;\x1b\\"
 HISTORY_FORMAT_OPTIONS = set("""
     --format --pretty --oneline --no-oneline --graph --no-graph --abbrev --no-abbrev
     --abbrev-commit --no-abbrev-commit --decorate --no-decorate --decorate-refs
@@ -478,6 +481,39 @@ HISTORY_FORMAT_OPTIONS = set("""
     --color-words --color-moved --color-moved-ws --diff-merges --no-diff-merges
     --combined-all-paths --early-output --no-early-output -z -p -u -s -m -c -t
 """.split())
+
+
+def raw_history_position(line: str, visible_position: int) -> int:
+    raw_position = 0
+    current_visible_position = 0
+    while raw_position < len(line):
+        escape = ANSI_ESCAPE_RE.match(line, raw_position)
+        if escape:
+            raw_position = escape.end()
+            continue
+        if current_visible_position == visible_position:
+            return raw_position
+        raw_position += 1
+        current_visible_position += 1
+    return raw_position
+
+
+def style_history_suffix(suffix: str, latest_url: str) -> str:
+    line_ending = ""
+    if suffix.endswith("\r\n"):
+        suffix, line_ending = suffix[:-2], "\r\n"
+    elif suffix.endswith(("\n", "\r")):
+        suffix, line_ending = suffix[:-1], suffix[-1]
+
+    def preserve_bold_underline(match: re.Match[str]) -> str:
+        reset = match.group(1) == "" or "0" in match.group(1).split(";")
+        return match.group(0) + ("\x1b[1;4m" if reset else "")
+
+    styled = ANSI_SGR_RE.sub(preserve_bold_underline, suffix)
+    return (
+        OSC8_OPEN + latest_url + "\x1b\\"
+        + "\x1b[1;4m" + styled + "\x1b[0m" + OSC8_CLOSE + line_ending
+    )
 
 
 def highlight_history(output: str, report_commits: list[str], use_color: bool) -> str:
