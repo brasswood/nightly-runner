@@ -1340,6 +1340,14 @@ Git log options:
   `--decorate=short|full|auto|no` options are supported. `--all` also includes
   commits with nightly reports that are not reachable from local refs.
 
+Output markers:
+  `+` marks a locally available commit with a nightly report. `?` marks a
+  report that exists on the server for a commit whose object is unavailable
+  locally. `?` entries appear first, separated from local history by a blank
+  line.
+  A report count follows the hash only when more than one report is available:
+  `[2]` through `[9]`, or `[9+]` for more than nine.
+
 Output-formatting and output-redirection options are not supported because
 history controls the output format. Examples include `--format`, `--pretty`,
 `--oneline` (provided automatically), `--date`, `--color`, `--line-prefix`,

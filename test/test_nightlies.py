@@ -1046,12 +1046,15 @@ class TestCli(unittest.TestCase):
                 cli.build_parser().parse_args(["history", "--help"])
 
         self.assertEqual(raised.exception.code, 0)
-        help_text = stdout.getvalue()
+        help_text = " ".join(stdout.getvalue().split())
         for documented in (
             "git log --oneline", "Revision arguments and ranges can be given directly",
             "Put pathspecs after `--`", "--first-parent", "--since",
             "--graph", "--no-graph", "--decorate=short|full|auto|no", "--all", "--format",
-            "--output", "--decorate-refs", "-L", "--paginate",
+            "--output", "--decorate-refs", "-L", "--paginate", "Output markers:",
+            "locally available commit with a nightly report", "report that exists on the server",
+            "object is unavailable locally", "appear first", "blank line",
+            "more than one report", "[9+]", "more than nine",
         ):
             with self.subTest(documented=documented):
                 self.assertIn(documented, help_text)
