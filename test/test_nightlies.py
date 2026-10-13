@@ -932,11 +932,14 @@ class TestCli(unittest.TestCase):
         client = self.client_config()
         output = "* abcdef1 has report\n* 1234567 no report\n"
         result = subprocess.CompletedProcess(["git", "log"], 0, stdout=output, stderr="")
+        config_missing = subprocess.CompletedProcess(
+            ["git", "config", "--get", "log.decorate"], 1, stdout="", stderr="",
+        )
         with (
             mock.patch.object(cli, "fetch_report_summaries", return_value=[
                 cli.ReportSummary("abcdef12", 1, "https://nightly.example/latest/")
             ]),
-            mock.patch.object(cli.subprocess, "run", return_value=result) as run,
+            mock.patch.object(cli.subprocess, "run", side_effect=[config_missing, result]) as run,
             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
         ):
             self.assertEqual(
@@ -944,10 +947,30 @@ class TestCli(unittest.TestCase):
                 0,
             )
         self.assertEqual(run.call_args.args[0], [
-            "git", "log", "--graph", "--oneline", "--color=never", "--all",
+            "git", "log", "--graph", "--oneline", "--color=never", "--decorate=no", "--all",
             "HEAD~2..HEAD", "--first-parent",
         ])
         self.assertEqual(stdout.getvalue(), "+ abcdef1 has report\n* 1234567 no report\n")
+
+    def test_history_decoration_option_respects_tty_and_git_config(self) -> None:
+        cases = (
+            (None, True, "--decorate=short"),
+            (None, False, "--decorate=no"),
+            ("auto", True, "--decorate=short"),
+            ("full", False, "--decorate=full"),
+            ("no", True, "--decorate=no"),
+            ("true", False, "--decorate=short"),
+        )
+        for configured, stdout_isatty, expected in cases:
+            with self.subTest(configured=configured, stdout_isatty=stdout_isatty):
+                result = subprocess.CompletedProcess(
+                    ["git", "config", "--get", "log.decorate"],
+                    1 if configured is None else 0,
+                    stdout="" if configured is None else configured + "\n",
+                    stderr="",
+                )
+                with mock.patch.object(cli.subprocess, "run", return_value=result):
+                    self.assertEqual(cli.history_decoration_option(stdout_isatty), expected)
 
     def test_history_pager_options_parse_after_subcommand(self) -> None:
         cases = (
@@ -976,18 +999,21 @@ class TestCli(unittest.TestCase):
         client = self.client_config()
         output = "* abcdef1 has report\n"
         git_result = subprocess.CompletedProcess(["git", "log"], 0, stdout=output, stderr="")
+        config_missing = subprocess.CompletedProcess(
+            ["git", "config", "--get", "log.decorate"], 1, stdout="", stderr="",
+        )
         pager_result = subprocess.CompletedProcess(["test-pager"], 0, stdout="", stderr="")
         with (
             mock.patch.object(cli, "fetch_report_summaries", return_value=[
                 cli.ReportSummary("abcdef12", 1, "https://nightly.example/latest/")
             ]),
             mock.patch.object(cli, "history_pager_command", return_value="test-pager"),
-            mock.patch.object(cli.subprocess, "run", side_effect=[git_result, pager_result]) as run,
+            mock.patch.object(cli.subprocess, "run", side_effect=[config_missing, git_result, pager_result]) as run,
             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
         ):
             self.assertEqual(cli.cmd_history(client, "herbie", [], paginate=True), 0)
         self.assertEqual(stdout.getvalue(), "")
-        self.assertEqual(run.call_args_list[1].kwargs["input"], "+ abcdef1 has report\n")
+        self.assertEqual(run.call_args_list[2].kwargs["input"], "+ abcdef1 has report\n")
 
     def test_log_url_is_derived_when_api_returns_names_only(self) -> None:
         self.assertEqual(
