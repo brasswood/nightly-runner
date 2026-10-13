@@ -2012,6 +2012,18 @@ class TestServerRunNow(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"bottle": fake_bottle, "status": fake_status}):
             return importlib.import_module("server")
 
+    def test_report_commits_reads_full_and_legacy_commit_ids(self) -> None:
+        server = self.import_server()
+        reports_dir = Path(tempfile.mkdtemp(prefix="server-reports-"))
+        self.addCleanup(shutil.rmtree, reports_dir)
+        success = reports_dir / "herbie" / f"1713570001:main:{'a' * 8}"
+        success.mkdir(parents=True)
+        (success / "nightly_info.json").write_text(json.dumps({"commit": "a" * 40}))
+        legacy = reports_dir / "herbie" / f"1713570002:feature:{'b' * 8}"
+        legacy.mkdir()
+
+        self.assertEqual(server.report_commits(reports_dir, "herbie"), ["a" * 40, "b" * 8])
+
     def make_runner(self, repo: str, branches: dict[str, Any]) -> tuple[Any, Any]:
         repo_state = SimpleNamespace(
             name=repo,

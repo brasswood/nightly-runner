@@ -2,6 +2,8 @@
 
 from typing import Optional, cast
 from dataclasses import dataclass
+import json
+import re
 import bottle
 from pathlib import Path
 import nightlies
@@ -186,6 +188,27 @@ def log_entries(
         key=lambda run: run.name,
     )
     return [{"name": run.name} for run in logs]
+
+
+def report_commits(reports_dir: Path, repo: str) -> list[str]:
+    if not repo or repo in {".", ".."} or "/" in repo or "\\" in repo:
+        raise bottle.HTTPError(400, "repo must be a repository name")
+    repo_dir = reports_dir / repo
+    if not repo_dir.is_dir():
+        return []
+    commits: set[str] = set()
+    for report_dir in repo_dir.iterdir():
+        if not report_dir.is_dir():
+            continue
+        info_path = report_dir / "nightly_info.json"
+        if info_path.is_file():
+            with info_path.open() as info_file:
+                commit = json.load(info_file).get("commit")
+        else:
+            commit = report_dir.name.rsplit(":", 1)[-1]
+        if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{7,40}", commit):
+            commits.add(commit)
+    return sorted(commits)
 
 
 @bottle.route("/")
