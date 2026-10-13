@@ -987,21 +987,22 @@ def cmd_log(client_config: ClientConfig, repo: str, selector: RunSelector, follo
     return 0
 
 
-def history_pager_command(stdout_isatty: bool) -> str | None:
-    if not stdout_isatty:
+def history_pager_command(paginate: bool | None, stdout_isatty: bool) -> str | None:
+    if not stdout_isatty or paginate is False:
         return None
 
     command_config: str | None = None
-    configured = subprocess.run(["git", "config", "--get", "pager.log"], capture_output=True, text=True)
-    if configured.returncode == 0:
-        value = configured.stdout.rstrip("\n")
-        boolean = subprocess.run(
-            ["git", "config", "--bool", "--get", "pager.log"], capture_output=True, text=True,
-        )
-        if boolean.stdout.strip() == "false":
-            return None
-        if boolean.stdout.strip() != "true":
-            command_config = value
+    if paginate is None:
+        configured = subprocess.run(["git", "config", "--get", "pager.log"], capture_output=True, text=True)
+        if configured.returncode == 0:
+            value = configured.stdout.rstrip("\n")
+            boolean = subprocess.run(
+                ["git", "config", "--bool", "--get", "pager.log"], capture_output=True, text=True,
+            )
+            if boolean.stdout.strip() == "false":
+                return None
+            if boolean.stdout.strip() != "true":
+                command_config = value
 
     if "GIT_PAGER" in os.environ:
         command = os.environ["GIT_PAGER"]
@@ -1014,7 +1015,7 @@ def history_pager_command(stdout_isatty: bool) -> str | None:
     return None if command in {"", "cat"} else command
 
 
-def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str]) -> int:
+def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str], paginate: bool | None = None) -> int:
     validate_history_args(git_args)
     reports = fetch_report_commits(client_config, repo)
     use_color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
@@ -1024,7 +1025,7 @@ def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str]) -> 
         capture_output=True, text=True, check=True,
     )
     output = highlight_history(result.stdout, reports, use_color)
-    pager = history_pager_command(sys.stdout.isatty())
+    pager = history_pager_command(paginate, sys.stdout.isatty())
     if pager is None:
         sys.stdout.write(output)
     else:
@@ -1110,7 +1111,10 @@ def build_parser() -> argparse.ArgumentParser:
     log_parser.add_argument("-f", action="store_true", dest="follow", help="Follow the log until it completes.")
     add_run_selector_args(log_parser)
 
-    subparsers.add_parser("history", help="Show Git history with nightly reports highlighted.")
+    history_parser = subparsers.add_parser("history", help="Show Git history with nightly reports highlighted.")
+    history_parser.add_argument("--paginate", action="store_const", const=True, dest="paginate", help="Use Git's pager.")
+    history_parser.add_argument("-P", "--no-pager", action="store_const", const=False, dest="paginate", help="Disable Git's pager.")
+    history_parser.set_defaults(paginate=None)
 
     status_parser = subparsers.add_parser("status", help="Show published report status for a repo branch run.")
     add_run_selector_args(status_parser)
@@ -1137,7 +1141,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_sync(client_config, args.wait)
         repo = infer_repo(".")
         if args.command == "history":
-            return cmd_history(client_config, repo, git_args)
+            return cmd_history(client_config, repo, git_args, args.paginate)
         if args.command in {"log", "start", "status", "open"} and args.branch is None:
             args.branch = current_branch(".")
         if args.command == "start":
