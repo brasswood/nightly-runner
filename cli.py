@@ -523,6 +523,17 @@ def raw_history_position(line: str, visible_position: int) -> int:
     return raw_position
 
 
+def history_sgr_state(line: str, raw_position: int) -> str:
+    state = ""
+    for match in ANSI_SGR_RE.finditer(line, 0, raw_position):
+        parameters = match.group(1).split(";")
+        if not match.group(1) or "0" in parameters:
+            state = ""
+        if match.group(1):
+            state += match.group(0)
+    return state
+
+
 def style_history_suffix(suffix: str, commit_offset: int, latest_url: str) -> str:
     line_ending = ""
     if suffix.endswith("\r\n"):
@@ -577,6 +588,8 @@ def highlight_history(
         if report.count > 1:
             count = f"({report.count})" if report.count <= 9 else "(9+)"
             count_text = f"\x1b[32m{count}\x1b[39m" if use_color else count
+            if use_color:
+                count_text += history_sgr_state(line, commit_end)
             line = line[:commit_end] + " " + count_text + line[commit_end:]
         if graph:
             line = line[:marker_position] + marker + line[marker_position + 1:]

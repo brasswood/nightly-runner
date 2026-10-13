@@ -954,6 +954,17 @@ class TestCli(unittest.TestCase):
             "+ aaaaaaa (2) two\n+ bbbbbbb (9) nine\n+ ccccccc (9+) many\n",
         )
 
+    def test_highlight_history_restores_ref_color_after_report_count(self) -> None:
+        report = cli.ReportSummary("abcdef12", 2, "https://nightly.example/latest/")
+        for graph in (False, True):
+            with self.subTest(graph=graph):
+                graph_prefix = "* " if graph else ""
+                output = (
+                    f"{graph_prefix}\x1b[33mabcdef1\x1b[m\x1b[33m (origin/ref)\x1b[m message\n"
+                )
+                styled = cli.highlight_history(output, [report], True, graph=graph)
+                self.assertIn("\x1b[39m\x1b[33m (origin/ref)", styled)
+
     def test_validate_history_args_allows_walk_options_only(self) -> None:
         cli.validate_history_args([
             "--decorate", "--decorate=short", "--decorate=full", "--decorate=auto", "--no-decorate",
