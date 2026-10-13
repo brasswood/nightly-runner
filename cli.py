@@ -498,7 +498,7 @@ def raw_history_position(line: str, visible_position: int) -> int:
     return raw_position
 
 
-def style_history_suffix(suffix: str, latest_url: str) -> str:
+def style_history_suffix(suffix: str, commit_offset: int, latest_url: str) -> str:
     line_ending = ""
     if suffix.endswith("\r\n"):
         suffix, line_ending = suffix[:-2], "\r\n"
@@ -509,9 +509,10 @@ def style_history_suffix(suffix: str, latest_url: str) -> str:
         reset = match.group(1) == "" or "0" in match.group(1).split(";")
         return match.group(0) + ("\x1b[1;4m" if reset else "")
 
-    styled = ANSI_SGR_RE.sub(preserve_bold_underline, suffix)
+    prefix, commit_and_message = suffix[:commit_offset], suffix[commit_offset:]
+    styled = ANSI_SGR_RE.sub(preserve_bold_underline, commit_and_message)
     return (
-        OSC8_OPEN + latest_url + "\x1b\\"
+        OSC8_OPEN + latest_url + "\x1b\\" + prefix
         + "\x1b[1;4m" + styled + "\x1b[0m" + OSC8_CLOSE + line_ending
     )
 
@@ -544,9 +545,13 @@ def highlight_history(output: str, report_summaries: list[ReportSummary], use_co
             count = f"({report.count})" if report.count <= 9 else "(9+)"
             count_text = f"\x1b[32m{count}\x1b[39m" if use_color else count
             line = line[:commit_end] + " " + count_text + line[commit_end:]
-        line = line[:marker_position] + ("\x1b[32m+\x1b[39m" if use_color else "+") + line[marker_position + 1:]
+        marker = "\x1b[1;32m+\x1b[0m" if use_color else "+"
+        line = line[:marker_position] + marker + line[marker_position + 1:]
         if use_color:
-            line = line[:marker_position] + style_history_suffix(line[marker_position:], report.latest_url)
+            commit_start = raw_history_position(line, match.start("commit"))
+            line = line[:marker_position] + style_history_suffix(
+                line[marker_position:], commit_start - marker_position, report.latest_url,
+            )
         lines.append(line)
     return "".join(lines)
 
