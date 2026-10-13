@@ -790,6 +790,13 @@ class TestCli(unittest.TestCase):
         with self.assertRaisesRegex(cli.CliError, "invalid report response"):
             cli.parse_report_commits({"commits": ["not-a-commit"]})
 
+    def test_highlight_history_styles_only_report_commits(self) -> None:
+        output = "* abcdef1 with report\n| * 1234567 without\n|/\n"
+        styled = "* \x1b[1;4mabcdef1 with report\x1b[0m\n| * 1234567 without\n|/\n"
+
+        self.assertEqual(cli.highlight_history(output, ["abcdef12"], True), styled)
+        self.assertEqual(cli.highlight_history(output, ["abcdef12"], False), output)
+
     def test_log_url_is_derived_when_api_returns_names_only(self) -> None:
         self.assertEqual(
             cli.log_url(self.client_config(), "run space.log"),

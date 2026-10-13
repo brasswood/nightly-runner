@@ -378,6 +378,28 @@ def current_branch(cwd: str) -> str:
     return branch
 
 
+HISTORY_COMMIT_LINE_RE = re.compile(r"^[ |/*\\]*(?P<commit>[0-9a-f]{7,40}) ")
+
+
+def highlight_history(output: str, report_commits: list[str], use_color: bool) -> str:
+    if not use_color or not report_commits:
+        return output
+    lines: list[str] = []
+    for line in output.splitlines(keepends=True):
+        match = HISTORY_COMMIT_LINE_RE.match(line)
+        if match and any(
+            report.startswith(match["commit"]) or match["commit"].startswith(report)
+            for report in report_commits
+        ):
+            end = len(line.rstrip("\r\n"))
+            line = (
+                line[:match.start("commit")] + "\x1b[1;4m"
+                + line[match.start("commit"):end] + "\x1b[0m" + line[end:]
+            )
+        lines.append(line)
+    return "".join(lines)
+
+
 ## Run logs
 
 def parse_run_log(repo: str, name: str) -> RunLog | None:
