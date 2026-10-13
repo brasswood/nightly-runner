@@ -945,13 +945,12 @@ class TestCli(unittest.TestCase):
         job = cli.RunningJob("herbie", "feature/test", "exact.log")
         with (
             mock.patch.object(cli, "fetch_published_report", return_value="/reports/run") as report,
-            mock.patch.object(cli, "fetch_manifest", return_value=SimpleNamespace(status="success")),
-            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            mock.patch.object(cli, "fetch_manifest", return_value=SimpleNamespace(status="success")) as manifest,
         ):
             cli.require_successful_job(self.client_config(), job)
 
         report.assert_called_once_with(self.client_config(), "herbie", "exact.log")
-        self.assertEqual(stdout.getvalue(), "Branch 'feature/test' on repo 'herbie' completed successfully\n")
+        manifest.assert_called_once_with(self.client_config(), "/reports/run")
 
     def test_require_successful_job_rejects_missing_manifest(self) -> None:
         not_found = urllib.error.HTTPError("manifest", 404, "Not Found", hdrs=None, fp=None)
