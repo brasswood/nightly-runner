@@ -781,6 +781,15 @@ class TestCli(unittest.TestCase):
 
         self.assertEqual(entries, ["2026-04-20-090832-1-herbie-main.log"])
 
+    def test_fetch_report_commits_validates_and_requests_repo(self) -> None:
+        client = self.client_config()
+        payload = {"commits": ["a" * 40, "feedface"]}
+        with mock.patch.object(cli.ClientConfig, "fetch_json", return_value=payload) as fetch:
+            self.assertEqual(cli.fetch_report_commits(client, "mach-6"), ["a" * 40, "feedface"])
+        fetch.assert_called_once_with("/api/reports?repo=mach-6")
+        with self.assertRaisesRegex(cli.CliError, "invalid report response"):
+            cli.parse_report_commits({"commits": ["not-a-commit"]})
+
     def test_log_url_is_derived_when_api_returns_names_only(self) -> None:
         self.assertEqual(
             cli.log_url(self.client_config(), "run space.log"),

@@ -29,6 +29,7 @@ STATE_FILENAME = "state.json"
 INDEX_PATH = "/"
 API_PATH = "/api"
 API_LOGS_PATH = "/api/logs"
+API_REPORTS_PATH = "/api/reports"
 LOG_PAGE_SIZE = 10
 REPORTS_PATH = "/reports/"
 SYNC_PATH = "/dryrun"
@@ -226,6 +227,23 @@ def parse_log_entries(payload: dict[str, object]) -> list[str]:
             raise CliError("invalid log response")
         entries.append(name)
     return entries
+
+
+def parse_report_commits(payload: dict[str, object]) -> list[str]:
+    commits = payload.get("commits")
+    if not isinstance(commits, list):
+        raise CliError("invalid report response")
+    parsed: list[str] = []
+    for commit in commits:
+        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{7,40}", commit):
+            raise CliError("invalid report response")
+        parsed.append(commit)
+    return parsed
+
+
+def fetch_report_commits(client_config: ClientConfig, repo: str) -> list[str]:
+    query = urllib.parse.urlencode({"repo": repo})
+    return parse_report_commits(client_config.fetch_json(API_REPORTS_PATH + "?" + query))
 
 
 @dataclass(frozen=True)
