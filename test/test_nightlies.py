@@ -826,21 +826,49 @@ class TestCli(unittest.TestCase):
         with self.assertRaisesRegex(cli.CliError, "invalid report response"):
             cli.parse_report_entries({"reports": [{"commit": "not-a-commit", "directory": "bad"}]}, client, "mach-6")
 
-    def test_fetch_report_commits_falls_back_to_directory_index_on_404(self) -> None:
+    def test_fetch_report_summaries_falls_back_to_directory_index_on_404(self) -> None:
         client = self.client_config()
         not_found = urllib.error.HTTPError("/api/reports", 404, "Not Found", hdrs=None, fp=None)
         listing = (
             '<a href="../">../</a>'
-            '<a href="1%3Amain%3Aabcdef12/">main</a>'
-            '<a href="2%3Afeature%2Ftest%3A12345678/">feature</a>'
-            '<a href="3%3Amain%3Aabcdef12/">duplicate</a>'
+            '<a href="1713570001%3Amain%3Aabcdef12/">main</a>'
+            '<a href="1713570002%3Afeature_2ftest%3A12345678/">feature</a>'
+            '<a href="1713570003%3Amain%3Aabcdef12/">duplicate</a>'
             '<a href="nightly_info.json">file</a>'
         )
         with (
             mock.patch.object(cli.ClientConfig, "fetch_json", side_effect=not_found),
             mock.patch.object(cli.ClientConfig, "fetch", return_value=listing) as fetch,
         ):
-            self.assertEqual(cli.fetch_report_commits(client, "mach-6"), ["12345678", "abcdef12"])
+            self.assertEqual(cli.fetch_report_summaries(client, "mach-6"), [
+                cli.ReportSummary(
+                    "12345678",
+                    1,
+                    "https://nightly.cs.washington.edu/reports/mach-6/"
+                    "1713570002%3Afeature_2ftest%3A12345678/",
+                ),
+                cli.ReportSummary(
+                    "abcdef12",
+                    2,
+                    "https://nightly.cs.washington.edu/reports/mach-6/"
+                    "1713570003%3Amain%3Aabcdef12/",
+                ),
+            ])
+        fetch.assert_called_once_with("/reports/mach-6/")
+
+        legacy_listing = '<a href="1713570004%3Amain%3Afeedface/">latest</a>'
+        with (
+            mock.patch.object(cli.ClientConfig, "fetch_json", return_value={"commits": ["feedface"]}),
+            mock.patch.object(cli.ClientConfig, "fetch", return_value=legacy_listing) as fetch,
+        ):
+            self.assertEqual(cli.fetch_report_summaries(client, "mach-6"), [
+                cli.ReportSummary(
+                    "feedface",
+                    1,
+                    "https://nightly.cs.washington.edu/reports/mach-6/"
+                    "1713570004%3Amain%3Afeedface/",
+                ),
+            ])
         fetch.assert_called_once_with("/reports/mach-6/")
 
         server_error = urllib.error.HTTPError("/api/reports", 500, "Internal Server Error", hdrs=None, fp=None)
