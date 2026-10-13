@@ -485,7 +485,7 @@ def current_branch(cwd: str) -> str:
     return branch
 
 
-HISTORY_COMMIT_LINE_RE = re.compile(r"^(?P<prefix>.*?)(?P<commit>[0-9a-f]{4,40}) ")
+HISTORY_COMMIT_LINE_RE = re.compile(r"^(?P<prefix>.*?)(?P<commit>[0-9a-f]{4,40})(?= |$)")
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
 OSC8_OPEN = "\x1b]8;;"
@@ -542,9 +542,17 @@ def style_history_suffix(suffix: str, commit_offset: int, latest_url: str) -> st
     )
 
 
-def highlight_history(output: str, report_summaries: list[ReportSummary], use_color: bool) -> str:
+def highlight_history(
+    output: str,
+    report_summaries: list[ReportSummary],
+    use_color: bool,
+    marker: str | None = None,
+) -> str:
     if not report_summaries:
         return output
+    if marker is None:
+        marker = "\x1b[1;32m+\x1b[0m" if use_color else "+"
+    marker_visible_length = len(ANSI_ESCAPE_RE.sub("", marker))
     lines: list[str] = []
     for line in output.splitlines(keepends=True):
         match = HISTORY_COMMIT_LINE_RE.match(ANSI_ESCAPE_RE.sub("", line))
@@ -570,15 +578,26 @@ def highlight_history(output: str, report_summaries: list[ReportSummary], use_co
             count = f"({report.count})" if report.count <= 9 else "(9+)"
             count_text = f"\x1b[32m{count}\x1b[39m" if use_color else count
             line = line[:commit_end] + " " + count_text + line[commit_end:]
-        marker = "\x1b[1;32m+\x1b[0m" if use_color else "+"
         line = line[:marker_position] + marker + line[marker_position + 1:]
         if use_color:
-            commit_start = raw_history_position(line, match.start("commit"))
+            commit_position = match.start("commit") + marker_visible_length - 1
+            commit_start = raw_history_position(line, commit_position)
             line = line[:marker_position] + style_history_suffix(
                 line[marker_position:], commit_start - marker_position, report.latest_url,
             )
         lines.append(line)
     return "".join(lines)
+
+
+def missing_history_output(report_summaries: list[ReportSummary], use_color: bool) -> str:
+    hash_start = "\x1b[33m" if use_color else ""
+    hash_end = "\x1b[m" if use_color else ""
+    marker = "\x1b[1;38;5;208m[missing]\x1b[0m" if use_color else "[missing]"
+    output = "".join(
+        f"* {hash_start}{report.commit}{hash_end}\n"
+        for report in report_summaries
+    )
+    return highlight_history(output, report_summaries, use_color, marker)
 
 
 def validate_history_args(git_args: list[str]) -> None:
@@ -1184,7 +1203,11 @@ def cmd_history(client_config: ClientConfig, repo: str, git_args: list[str], pag
         ["git", "log", "--graph", "--oneline", color_arg, decoration_arg, *git_args],
         capture_output=True, text=True, check=True,
     )
-    output = highlight_history(result.stdout, reports, use_color)
+    output = missing_history_output(missing_reports, use_color)
+    history_output = highlight_history(result.stdout, reports, use_color)
+    if missing_reports and history_output:
+        output += "\n"
+    output += history_output
     pager = history_pager_command(paginate, sys.stdout.isatty())
     if pager is None:
         sys.stdout.write(output)
