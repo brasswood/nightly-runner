@@ -667,7 +667,6 @@ def cmd_sync(client_config: ClientConfig, wait: bool = False) -> int:
     while True:
         try:
             client_config.post(SYNC_PATH, {})
-            break
         except urllib.error.HTTPError as exc:
             if exc.code != 409:
                 raise
@@ -679,6 +678,8 @@ def cmd_sync(client_config: ClientConfig, wait: bool = False) -> int:
             print("Nightly sync already running. Waiting for it to finish before starting a new one. This should take a minute or two...")
             wait_for_sync(client_config, started=True)
             last_sync_finished = True
+            continue
+        break
     if wait:
         print("Waiting for sync to finish. This should take a minute or two...")
         wait_for_sync(client_config, started=new_sync_started)
