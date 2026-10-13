@@ -378,7 +378,7 @@ def current_branch(cwd: str) -> str:
     return branch
 
 
-HISTORY_COMMIT_LINE_RE = re.compile(r"^[ |/*\\]*(?P<commit>[0-9a-f]{7,40}) ")
+HISTORY_COMMIT_LINE_RE = re.compile(r"^[ |/*\\]*(?P<commit>[0-9a-f]{4,40}) ")
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 HISTORY_FORMAT_OPTIONS = set("""
     --format --pretty --oneline --no-oneline --graph --no-graph --abbrev --no-abbrev

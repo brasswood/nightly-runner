@@ -811,6 +811,10 @@ class TestCli(unittest.TestCase):
         styled = "* \x1b[1;4mabcdef1\x1b[0m with report\n| * 1234567 without\n|/\n"
 
         self.assertEqual(cli.highlight_history(output, ["abcdef12"], True), styled)
+        self.assertEqual(
+            cli.highlight_history("* abcd short hash\n", ["abcdef12"], True),
+            "* \x1b[1;4mabcd\x1b[0m short hash\n",
+        )
         colored = "\x1b[31m* \x1b[m\x1b[33mabcdef1\x1b[m with report\n"
         colored_styled = "\x1b[31m* \x1b[m\x1b[33m\x1b[1;4mabcdef1\x1b[0m\x1b[m with report\n"
         self.assertEqual(cli.highlight_history(colored, ["abcdef12"], True), colored_styled)
