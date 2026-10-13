@@ -2142,7 +2142,7 @@ class TestServerRunNow(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"bottle": fake_bottle, "status": fake_status}):
             return importlib.import_module("server")
 
-    def test_report_commits_reads_full_and_legacy_commit_ids(self) -> None:
+    def test_report_entries_read_full_and_legacy_commit_ids(self) -> None:
         server = self.import_server()
         reports_dir = Path(tempfile.mkdtemp(prefix="server-reports-"))
         self.addCleanup(shutil.rmtree, reports_dir)
@@ -2152,13 +2152,17 @@ class TestServerRunNow(unittest.TestCase):
         legacy = reports_dir / "herbie" / f"1713570002:feature:{'b' * 8}"
         legacy.mkdir()
 
-        self.assertEqual(server.report_commits(reports_dir, "herbie"), ["a" * 40, "b" * 8])
+        self.assertEqual(server.report_entries(reports_dir, "herbie"), [
+            {"commit": "a" * 40, "directory": f"1713570001:main:{'a' * 8}"},
+            {"commit": "b" * 8, "directory": f"1713570002:feature:{'b' * 8}"},
+        ])
 
-    def test_api_reports_returns_commit_ids_for_requested_repo(self) -> None:
+    def test_api_reports_returns_commit_ids_and_directories_for_requested_repo(self) -> None:
         server = self.import_server()
         reports_dir = Path(tempfile.mkdtemp(prefix="server-api-reports-"))
         self.addCleanup(shutil.rmtree, reports_dir)
-        (reports_dir / "herbie" / "1713570001:main:feedface").mkdir(parents=True)
+        report_directory = "1713570001:main:feedface"
+        (reports_dir / "herbie" / report_directory).mkdir(parents=True)
         runner = SimpleNamespace(report_dir=reports_dir, load=mock.Mock())
         request = SimpleNamespace(query={"repo": "herbie"})
 
@@ -2166,7 +2170,10 @@ class TestServerRunNow(unittest.TestCase):
             mock.patch.object(server.nightlies, "NightlyRunner", return_value=runner),
             mock.patch.object(server.bottle, "request", request),
         ):
-            self.assertEqual(server.api_reports(), {"commits": ["feedface"]})
+            self.assertEqual(server.api_reports(), {
+                "commits": ["feedface"],
+                "reports": [{"commit": "feedface", "directory": report_directory}],
+            })
         runner.load.assert_called_once_with()
 
     def make_runner(self, repo: str, branches: dict[str, Any]) -> tuple[Any, Any]:
