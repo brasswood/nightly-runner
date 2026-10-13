@@ -1042,6 +1042,8 @@ def build_parser() -> argparse.ArgumentParser:
     log_parser.add_argument("-f", action="store_true", dest="follow", help="Follow the log until it completes.")
     add_run_selector_args(log_parser)
 
+    subparsers.add_parser("history", help="Show Git history with nightly reports highlighted.")
+
     status_parser = subparsers.add_parser("status", help="Show published report status for a repo branch run.")
     add_run_selector_args(status_parser)
 
@@ -1054,7 +1056,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args, git_args = parser.parse_known_args(argv)
+    if git_args and args.command != "history":
+        parser.error("unrecognized arguments: " + " ".join(git_args))
     try:
         os.chdir(args.cwd)
         if args.command == "setup":
@@ -1063,6 +1068,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "sync":
             return cmd_sync(client_config, args.wait)
         repo = infer_repo(".")
+        if args.command == "history":
+            return cmd_history(client_config, repo, git_args)
         if args.command in {"log", "start", "status", "open"} and args.branch is None:
             args.branch = current_branch(".")
         if args.command == "start":

@@ -742,6 +742,22 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(stderr.getvalue(), "error: client is not configured. Run `cli setup <url>` to fix.\n")
 
+    def test_main_history_forwards_revision_and_all_options(self) -> None:
+        result = subprocess.CompletedProcess(["git", "log"], 0, stdout="* abcdef1 report\n", stderr="")
+        with (
+            mock.patch.object(cli, "load_client_config", return_value=self.client_config()),
+            mock.patch.object(cli, "infer_repo", return_value="herbie"),
+            mock.patch.object(cli, "fetch_report_commits", return_value=["abcdef12"]),
+            mock.patch.object(cli.subprocess, "run", return_value=result) as run,
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+        ):
+            rc = cli.main(["history", "--all", "main~2..main", "--first-parent"])
+
+        self.assertEqual(rc, 0)
+        self.assertIn("--all", run.call_args.args[0])
+        self.assertIn("main~2..main", run.call_args.args[0])
+        self.assertEqual(stdout.getvalue(), "* abcdef1 report\n")
+
     def test_main_list_without_branch_does_not_default_to_current_branch(self) -> None:
         entries = [
             log_name(
