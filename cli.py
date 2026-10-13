@@ -267,16 +267,27 @@ def summarize_report_entries(
     return result
 
 
-def parse_report_commits(payload: dict[str, object]) -> list[str]:
-    commits = payload.get("commits")
-    if not isinstance(commits, list):
+def parse_report_entries(payload: dict[str, object], client_config: ClientConfig, repo: str) -> list[ReportSummary]:
+    reports = payload.get("reports")
+    if not isinstance(reports, list):
         raise CliError("invalid report response")
-    parsed: list[str] = []
-    for commit in commits:
-        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{7,40}", commit):
+    entries: list[tuple[str, str]] = []
+    for report in reports:
+        if not isinstance(report, dict):
             raise CliError("invalid report response")
-        parsed.append(commit)
-    return parsed
+        commit = report.get("commit")
+        directory = report.get("directory")
+        if (
+            not isinstance(commit, str)
+            or not re.fullmatch(r"[0-9a-f]{7,40}", commit)
+            or not isinstance(directory, str)
+        ):
+            raise CliError("invalid report response")
+        match = REPORT_DIRECTORY_RE.fullmatch(directory)
+        if match is None or not (commit.startswith(match["commit"]) or match["commit"].startswith(commit)):
+            raise CliError("invalid report response")
+        entries.append((commit, directory))
+    return summarize_report_entries(entries, client_config, repo)
 
 
 class ReportDirectoryParser(HTMLParser):
