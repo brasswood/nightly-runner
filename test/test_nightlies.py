@@ -761,10 +761,11 @@ class TestCli(unittest.TestCase):
             mock.patch.object(cli.subprocess, "run", side_effect=[config_missing, checked_commit, result]) as run,
             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
         ):
-            rc = cli.main(["history", "--all", "main~2..main", "--first-parent"])
+            rc = cli.main(["history", "--graph", "--all", "main~2..main", "--first-parent"])
 
         self.assertEqual(rc, 0)
         self.assertIn("--all", run.call_args.args[0])
+        self.assertIn("--graph", run.call_args.args[0])
         self.assertIn("main~2..main", run.call_args.args[0])
         self.assertIn(report_commit, run.call_args.args[0])
         self.assertEqual(stdout.getvalue(), "+ abcdef1 report\n")
@@ -899,17 +900,19 @@ class TestCli(unittest.TestCase):
         )
 
         reports = [cli.ReportSummary("abcdef12", 2, url)]
-        self.assertEqual(cli.highlight_history(output, reports, True), styled)
+        self.assertEqual(cli.highlight_history(output, reports, True, graph=True), styled)
         self.assertEqual(
-            cli.highlight_history("* abcd short hash\n", [cli.ReportSummary("abcdef12", 1, url)], False),
+            cli.highlight_history(
+                "* abcd short hash\n", [cli.ReportSummary("abcdef12", 1, url)], False, graph=True,
+            ),
             "+ abcd short hash\n",
         )
         self.assertEqual(
-            cli.highlight_history("* abcdef1 (HEAD -> main) report\n", reports, False),
+            cli.highlight_history("* abcdef1 (HEAD -> main) report\n", reports, False, graph=True),
             "+ abcdef1 (2) (HEAD -> main) report\n",
         )
         colored = "\x1b[31m* \x1b[m\x1b[33mabcdef1\x1b[m with report\n"
-        colored_styled = cli.highlight_history(colored, reports, True)
+        colored_styled = cli.highlight_history(colored, reports, True, graph=True)
         visible = re.sub(r"\x1b\]8;;.*?\x1b\\", "", colored_styled)
         visible = cli.ANSI_ESCAPE_RE.sub("", visible)
         self.assertEqual(visible, "+ abcdef1 (2) with report\n")
@@ -920,6 +923,21 @@ class TestCli(unittest.TestCase):
             colored_styled,
         )
 
+    def test_highlight_history_marks_and_links_plain_oneline_commits(self) -> None:
+        url = "https://nightly.example/latest/"
+        output = "abcdef1 (HEAD -> main) report\n1234567 no report\n"
+        styled = cli.highlight_history(
+            output, [cli.ReportSummary("abcdef12", 2, url)], True, graph=False,
+        )
+
+        visible = re.sub(r"\x1b\]8;;.*?\x1b\\", "", styled)
+        visible = cli.ANSI_ESCAPE_RE.sub("", visible)
+        self.assertEqual(visible, "+ abcdef1 (2) (HEAD -> main) report\n1234567 no report\n")
+        self.assertIn(
+            "\x1b[1;32m+\x1b[0m \x1b]8;;" + url + "\x1b\\\x1b[1;4mabcdef1",
+            styled,
+        )
+
     def test_highlight_history_caps_displayed_report_count(self) -> None:
         reports = [
             cli.ReportSummary("aaaaaaa1", 2, "https://nightly.example/2/"),
@@ -928,14 +946,15 @@ class TestCli(unittest.TestCase):
         ]
         output = "* aaaaaaa two\n* bbbbbbb nine\n* ccccccc many\n"
         self.assertEqual(
-            cli.highlight_history(output, reports, False),
+            cli.highlight_history(output, reports, False, graph=True),
             "+ aaaaaaa (2) two\n+ bbbbbbb (9) nine\n+ ccccccc (9+) many\n",
         )
 
     def test_validate_history_args_allows_walk_options_only(self) -> None:
         cli.validate_history_args([
             "--decorate", "--decorate=short", "--decorate=full", "--decorate=auto", "--no-decorate",
-            "--all", "--first-parent", "--reverse", "HEAD~3..HEAD", "--", "src/main.py",
+            "--graph", "--no-graph", "--all", "--first-parent", "--reverse", "HEAD~3..HEAD",
+            "--", "src/main.py",
         ])
         for args in (
             ["--format=raw"], ["--output", "log.txt"], ["--decorate-refs=refs/heads/*"],
@@ -946,7 +965,7 @@ class TestCli(unittest.TestCase):
 
     def test_cmd_history_forwards_git_walk_args(self) -> None:
         client = self.client_config()
-        output = "* abcdef1 has report\n* 1234567 no report\n"
+        output = "abcdef1 has report\n1234567 no report\n"
         result = subprocess.CompletedProcess(["git", "log"], 0, stdout=output, stderr="")
         report_commit = "abcdef12" + "0" * 32
         checked_commit = subprocess.CompletedProcess(
@@ -974,11 +993,11 @@ class TestCli(unittest.TestCase):
                 0,
             )
         self.assertEqual(run.call_args.args[0], [
-            "git", "log", "--graph", "--oneline", "--color=never", "--decorate=no", "--all",
+            "git", "log", "--oneline", "--color=never", "--decorate=no", "--all",
             "HEAD~2..HEAD", "--first-parent", "--decorate=no", "--decorate=full", report_commit,
             "--not", "refs/heads/excluded", "--", "src/main.py",
         ])
-        self.assertEqual(stdout.getvalue(), "+ abcdef1 has report\n* 1234567 no report\n")
+        self.assertEqual(stdout.getvalue(), "+ abcdef1 has report\n1234567 no report\n")
 
     def test_history_decoration_option_respects_tty_and_git_config(self) -> None:
         cases = (
@@ -1025,7 +1044,7 @@ class TestCli(unittest.TestCase):
 
     def test_cmd_history_sends_output_to_selected_pager(self) -> None:
         client = self.client_config()
-        output = "* abcdef1 has report\n"
+        output = "abcdef1 has report\n"
         git_result = subprocess.CompletedProcess(["git", "log"], 0, stdout=output, stderr="")
         config_missing = subprocess.CompletedProcess(
             ["git", "config", "--get", "log.decorate"], 1, stdout="", stderr="",
@@ -1041,6 +1060,8 @@ class TestCli(unittest.TestCase):
         ):
             self.assertEqual(cli.cmd_history(client, "herbie", [], paginate=True), 0)
         self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(run.call_args_list[1].args[0][:3], ["git", "log", "--oneline"])
+        self.assertNotIn("--graph", run.call_args_list[1].args[0])
         self.assertEqual(run.call_args_list[2].kwargs["input"], "+ abcdef1 has report\n")
 
     def test_cmd_history_formats_missing_reports_before_present_history(self) -> None:
@@ -1049,7 +1070,7 @@ class TestCli(unittest.TestCase):
         missing_url = "https://nightly.example/reports/herbie/missing/latest/"
         missing_report = cli.ReportSummary(missing_commit, 3, missing_url)
         logged = subprocess.CompletedProcess(
-            ["git", "log"], 0, stdout="* abcdef1 present history\n", stderr="",
+            ["git", "log"], 0, stdout="abcdef1 present history\n", stderr="",
         )
 
         class TTYBuffer(io.StringIO):
@@ -1073,7 +1094,7 @@ class TestCli(unittest.TestCase):
             )
 
         self.assertEqual(run.call_args.args[0], [
-            "git", "log", "--graph", "--oneline", "--color=always", "--decorate=short",
+            "git", "log", "--oneline", "--color=always", "--decorate=short",
             "--all", "--decorate=short",
         ])
         self.assertIn(cli.OSC8_OPEN + missing_url + "\x1b\\", stdout.getvalue())
@@ -1082,7 +1103,7 @@ class TestCli(unittest.TestCase):
         visible = cli.ANSI_ESCAPE_RE.sub("", visible)
         self.assertEqual(
             visible,
-            f"? {missing_commit} (3)\n\n* abcdef1 present history\n",
+            f"? {missing_commit} (3)\n\nabcdef1 present history\n",
         )
 
     def test_log_url_is_derived_when_api_returns_names_only(self) -> None:
