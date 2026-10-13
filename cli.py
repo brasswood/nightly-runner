@@ -230,6 +230,43 @@ def parse_log_entries(payload: dict[str, object]) -> list[str]:
     return entries
 
 
+@dataclass(frozen=True)
+class ReportSummary:
+    commit: str
+    count: int
+    latest_url: str
+
+
+REPORT_DIRECTORY_RE = re.compile(r"(?P<timestamp>[0-9]+):[^/:\\]+:(?P<commit>[0-9a-f]{7,40})")
+
+
+def summarize_report_entries(
+    entries: Iterable[tuple[str, str]], client_config: ClientConfig, repo: str,
+) -> list[ReportSummary]:
+    summaries: dict[str, tuple[int, int, str]] = {}
+    for commit, directory in set(entries):
+        match = REPORT_DIRECTORY_RE.fullmatch(directory)
+        if match is None or not (commit.startswith(match["commit"]) or match["commit"].startswith(commit)):
+            continue
+        report_commit = match["commit"]
+        timestamp = int(match["timestamp"])
+        previous = summaries.get(report_commit)
+        if previous is None:
+            summaries[report_commit] = (1, timestamp, directory)
+        else:
+            count, latest_timestamp, latest_directory = previous
+            if (timestamp, directory) > (latest_timestamp, latest_directory):
+                summaries[report_commit] = (count + 1, timestamp, directory)
+            else:
+                summaries[report_commit] = (count + 1, latest_timestamp, latest_directory)
+
+    result: list[ReportSummary] = []
+    for commit, (count, _timestamp, directory) in sorted(summaries.items()):
+        path = REPORTS_PATH + urllib.parse.quote(repo, safe="") + "/" + urllib.parse.quote(directory, safe="") + "/"
+        result.append(ReportSummary(commit, count, urllib.parse.urljoin(client_config.index_url, path)))
+    return result
+
+
 def parse_report_commits(payload: dict[str, object]) -> list[str]:
     commits = payload.get("commits")
     if not isinstance(commits, list):
